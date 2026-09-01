@@ -36,7 +36,7 @@ async function card(){
     if(!p)return unknown();
     const active=p.state==='ISCRITTO';
     const ended=!active&&p.trials>=p.maxTrials;
-    shell(`<div class="eyebrow">Tessera digitale</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div><div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Mostra questo QR all’ingresso del campo.</p>`);
+    shell(`<div class="eyebrow">Tessera digitale</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Mostra questo QR all’ingresso del campo.</p>`);
     new QRCode(document.querySelector('#qr'),{text:p.id,width:280,height:280,colorDark:'#123d73',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   }catch(error){connectionError(error)}
 }
@@ -72,7 +72,7 @@ async function openPerson(rawId){
   try{
     const p=await getPerson(id);if(!p)return unknown();
     const active=p.state==='ISCRITTO';const ended=!active&&p.trials>=p.maxTrials;
-    shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${ended?'<p>Per continuare è necessario completare l’iscrizione.</p>':`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
+    shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${ended?'<p>Per continuare è necessario completare l’iscrizione.</p>':`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
     const button=document.querySelector('#register');if(button)button.onclick=()=>register(id,button);
   }catch(error){connectionError(error)}
 }
