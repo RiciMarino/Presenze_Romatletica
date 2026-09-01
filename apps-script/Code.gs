@@ -67,6 +67,9 @@ function registerPresence_(payload) {
     if (!record) throw new Error('QR non riconosciuto');
     const config = readConfig_();
     const maxTrials = Number(config.MAX_PROVE || 2);
+    const expectedPin = String(config.SCANNER_PIN || '').trim();
+    const suppliedPin = String(payload.pin || '').trim();
+    if (!expectedPin || expectedPin === 'DA_IMPOSTARE' || suppliedPin !== expectedPin) throw new Error('PIN operatore non valido');
     const state = String(record.Stato || 'PROVA').toUpperCase();
     const trials = Number(record['Prove effettuate'] || 0);
     if (state !== 'ISCRITTO' && trials >= maxTrials) {
@@ -184,7 +187,7 @@ function appendAthlete_(sheet, map, id, source, type) {
 function uniqueId_(sheet, map) {
   const existing = sheet.getLastRow() < 2 ? [] : sheet.getRange(2,map.ID_ROMATLETICA+1,sheet.getLastRow()-1,1).getDisplayValues().flat();
   let id;
-  do id = `RA-P-${Utilities.getUuid().replace(/-/g,'').slice(0,6).toUpperCase()}`; while (existing.includes(id));
+  do id = `RA-${Utilities.getUuid().replace(/-/g,'').slice(0,24).toUpperCase()}`; while (existing.includes(id));
   return id;
 }
 
@@ -234,6 +237,34 @@ function setupArchive() {
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', active.getId());
   onOpen();
   return `Archivio collegato: ${active.getName()}`;
+}
+
+function hardenArchive() {
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
+  const map = headerMap_(sheet);
+  const config = readConfig_();
+  const rowCount = sheet.getLastRow() - 1;
+  if (rowCount < 1) throw new Error('Nessun atleta presente');
+  const ids = [];
+  const links = [];
+  for (let i = 0; i < rowCount; i++) {
+    const id = `RA-${Utilities.getUuid().replace(/-/g,'').slice(0,24).toUpperCase()}`;
+    ids.push([id]);
+    links.push([`${config.BASE_SITE_URL}?view=card&id=${encodeURIComponent(id)}`]);
+  }
+  sheet.getRange(2,map.ID_ROMATLETICA+1,rowCount,1).setValues(ids);
+  sheet.getRange(2,map['Link tessera']+1,rowCount,1).setValues(links);
+  setConfigValue_('SCANNER_PIN','DA_IMPOSTARE');
+  SpreadsheetApp.flush();
+  return `${rowCount} ID protetti generati. Imposta SCANNER_PIN nel foglio Config.`;
+}
+
+function setConfigValue_(key, value) {
+  const sheet = spreadsheet_().getSheetByName(SHEET_CONFIG);
+  const rows = sheet.getDataRange().getValues();
+  const index = rows.findIndex((row,i) => i > 0 && String(row[0]).trim() === key);
+  if (index >= 0) sheet.getRange(index+1,2).setValue(value);
+  else sheet.appendRow([key,value]);
 }
 
 function checkConfiguration() {
