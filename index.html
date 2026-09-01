@@ -1,123 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Asd Romatletica – sondaggi 2026</title>
-  <meta name="description" content="Dashboard dei sondaggi 2026 di Asd Romatletica" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#123d73">
+  <title>Romatletica · Presenze</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="hero">
-    <div class="container">
-      <div class="hero-card">
-        <div class="hero-grid">
-          <div>
-            <h1>Asd Romatletica – sondaggi 2026</h1>
-            <p>Dashboard di ascolto per leggere rapidamente punti di forza, aree critiche e dettaglio delle risposte di tesserati, tesserati autonomi, ex tesserati e genitori.</p>
-            <div class="hero-badges">
-              <span class="badge">Statistiche a torta</span>
-              <span class="badge">Analisi sintetica</span>
-              <span class="badge">Tag risposte aperte</span>
-              <span class="badge">Pronto per GitHub Pages</span>
-            </div>
-          </div>
-          <div class="logo-wrap">
-            <img src="logo.png" alt="Logo Asd Romatletica" />
-          </div>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <main>
-    <section class="section">
-      <div class="container">
-        <div id="summaryCards" class="cards"></div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container grid-2">
-        <div class="panel">
-          <h2>Punti di forza</h2>
-          <ul id="strengths" class="list-clean"></ul>
-        </div>
-        <div class="panel">
-          <h2>Aree di attenzione</h2>
-          <ul id="weaknesses" class="list-clean"></ul>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container">
-        <div id="insights" class="grid-2"></div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container">
-        <div class="panel">
-          <h2>Sezioni del sondaggio</h2>
-          <div class="tabs">
-            <button class="tab-btn active" data-section="tesserati">Tesserati</button>
-            <button class="tab-btn" data-section="autonomi">Tesserati autonomi</button>
-            <button class="tab-btn" data-section="ex">Ex tesserati</button>
-            <button class="tab-btn" data-section="genitori">Genitori</button>
-          </div>
-          <div id="sectionContent"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container grid-2">
-        <div class="panel">
-          <h2>Tag delle risposte aperte</h2>
-          <p class="small">Raggruppamento automatico dei commenti aperti dei tesserati, ex tesserati e genitori.</p>
-          <div id="tagCloud" class="tag-cloud"></div>
-        </div>
-        <div class="panel">
-          <h2>Nota di lettura</h2>
-          <div class="notice">
-            I tesserati attivi sono stati filtrati includendo soltanto chi ha risposto “Sì, regolarmente” oppure “Sì, ma saltuariamente”. Gli ex tesserati includono solo “No, non mi alleno più”. Il foglio Tecnici è escluso.
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container">
-        <div class="panel">
-          <h2>Dettaglio risposte aperte</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Area</th>
-                  <th>Tag</th>
-                  <th>Commento</th>
-                </tr>
-              </thead>
-              <tbody id="openTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <div class="container">
-      Dashboard generata da file Excel interno. Ultimo aggiornamento dataset: <span id="generatedOn"></span>.
-    </div>
-  </footer>
-
+  <header><img src="logo.png" alt="Romatletica"><span>ROMATLETICA</span></header>
+  <main id="app" aria-live="polite"></main>
+  <footer>ASD Romatletica · Stagione 2026/27</footer>
   <script src="app.js"></script>
 </body>
 </html>
