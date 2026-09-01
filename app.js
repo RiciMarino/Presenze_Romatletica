@@ -102,14 +102,30 @@ async function card(){
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button>`);
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="notice" hidden></p>`);
   flushQueue();
-  syncRoster(true);
-  document.querySelector('#start').onclick=async()=>{
-    if(!ensurePin()){alert('Apri il link scanner privato fornito da Romatletica.');return}
-    if(!Object.keys(roster()).length&&!(await syncRoster()))return;
-    startCamera();
-  };
+  const button=document.querySelector('#start');
+  button.onclick=()=>startCamera();
+  prepareScanner(button);
+}
+
+async function prepareScanner(button){
+  if(!ensurePin()){
+    button.textContent='DISPOSITIVO NON AUTORIZZATO';
+    const message=document.querySelector('#scanner-message');
+    message.hidden=false;message.textContent='Apri il link scanner privato fornito da Romatletica.';
+    return;
+  }
+  if(navigator.onLine)await syncRoster(true);
+  if(Object.keys(roster()).length){
+    button.disabled=false;
+    button.textContent='ATTIVA FOTOCAMERA';
+    flushQueue();
+    return;
+  }
+  button.textContent='CONNESSIONE NECESSARIA';
+  const message=document.querySelector('#scanner-message');
+  message.hidden=false;message.textContent='Collegati a internet una volta per preparare lo scanner.';
 }
 
 function ensurePin(){
