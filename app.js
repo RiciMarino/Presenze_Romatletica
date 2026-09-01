@@ -9,8 +9,8 @@ if(accessKey){
   const clean=new URL(location.href);clean.searchParams.delete('key');history.replaceState({},'',clean.pathname+clean.search);
 }
 let scannerInstance=null;
-const ROSTER_KEY='ra-scanner-roster-v1';
-const QUEUE_KEY='ra-scanner-queue-v1';
+const ROSTER_KEY='ra-scanner-roster-v2';
+const QUEUE_KEY='ra-scanner-queue-v2';
 let syncing=false;
 
 function shell(html){app.innerHTML=`<section class="card">${html}</section>`}
