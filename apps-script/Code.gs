@@ -4,6 +4,8 @@ const SHEET_CONFIG = 'Config';
 const SHEET_LOG = 'Import_Log';
 
 function onOpen() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', active.getId());
   SpreadsheetApp.getUi().createMenu('Romatletica')
     .addItem('Importa report Golee', 'showImportDialog')
     .addSeparator()
@@ -70,7 +72,7 @@ function registerPresence_(payload) {
     if (state !== 'ISCRITTO' && trials >= maxTrials) {
       return { ok: false, blocked: true, error: 'Prove gratuite terminate', person: getPublicPerson_(id).person };
     }
-    const presenze = SpreadsheetApp.getActive().getSheetByName(SHEET_PRESENZE);
+    const presenze = spreadsheet_().getSheetByName(SHEET_PRESENZE);
     if (!presenze) throw new Error('Foglio Presenze mancante');
     const now = new Date();
     if (isRecentDuplicate_(presenze, id, now)) {
@@ -79,7 +81,7 @@ function registerPresence_(payload) {
     const type = state === 'ISCRITTO' ? 'ALLENAMENTO' : 'PROVA';
     const nextTrial = type === 'PROVA' ? trials + 1 : '';
     presenze.appendRow([now,id,record.Cognome || '',record.Nome || '',type,nextTrial,String(payload.operator || ''),'']);
-    const atleti = SpreadsheetApp.getActive().getSheetByName(SHEET_ATLETI);
+    const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
     const headers = headerMap_(atleti);
     if (type === 'PROVA') atleti.getRange(record.__row, headers['Prove effettuate'] + 1).setValue(nextTrial);
     atleti.getRange(record.__row, headers['Ultima presenza'] + 1).setValue(now);
@@ -97,7 +99,7 @@ function importGolee(payload) {
   const normalizedHeaders = payload.headers.map(normalizeHeader_);
   const cfIndex = normalizedHeaders.indexOf('codicefiscale');
   if (cfIndex < 0) throw new Error('Manca la colonna “Codice fiscale”');
-  const atleti = SpreadsheetApp.getActive().getSheetByName(SHEET_ATLETI);
+  const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
   if (!atleti) throw new Error('Foglio Atleti mancante');
   const map = headerMap_(atleti);
   const existing = athleteIndexByCf_(atleti, map);
@@ -124,7 +126,7 @@ function importGolee(payload) {
 }
 
 function findAthlete_(id) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_ATLETI);
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
   if (!sheet || sheet.getLastRow() < 2) return null;
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(String);
@@ -137,7 +139,7 @@ function findAthlete_(id) {
 }
 
 function readConfig_() {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_CONFIG);
+  const sheet = spreadsheet_().getSheetByName(SHEET_CONFIG);
   const values = sheet.getDataRange().getValues();
   return values.slice(1).reduce((acc,row) => { acc[String(row[0])] = row[1]; return acc; }, {});
 }
@@ -191,7 +193,7 @@ function rowObject_(headers,row) {
 }
 
 function writeRawImport_(headers, rows, type) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = spreadsheet_();
   const name = type === 'ISCRITTI' ? 'Ultimo_Import_Iscritti' : 'Ultimo_Import_Prove';
   const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
   sheet.clearContents();
@@ -200,7 +202,7 @@ function writeRawImport_(headers, rows, type) {
 }
 
 function logImport_(type, read, created, updated) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_LOG);
+  const sheet = spreadsheet_().getSheetByName(SHEET_LOG);
   sheet.appendRow([new Date(),type,read,created,updated]);
 }
 
@@ -213,6 +215,25 @@ function isRecentDuplicate_(sheet,id,now) {
 
 function normalizeHeader_(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+function spreadsheet_() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) {
+    PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', active.getId());
+    return active;
+  }
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id) throw new Error('Archivio non inizializzato: esegui una volta la funzione setupArchive dall’editor.');
+  return SpreadsheetApp.openById(id);
+}
+
+function setupArchive() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (!active) throw new Error('Apri Apps Script dal foglio Archivio_Presenze_Romatletica.');
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', active.getId());
+  onOpen();
+  return `Archivio collegato: ${active.getName()}`;
 }
 
 function checkConfiguration() {
