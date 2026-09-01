@@ -22,7 +22,7 @@ async function getPerson(id){
 async function registerPerson(id){
   id=normalizedId(id);
   if(CONFIG.demoMode||!CONFIG.backendUrl){const person=await getPerson(id);if(!person)return null;if(person.state==='PROVA')person.trials=Math.min(person.maxTrials||2,person.trials+1);localStorage.setItem(`ra-demo-${id}`,JSON.stringify(person));return{ok:true,person,message:person.state==='PROVA'?'Prova registrata':'Presenza registrata'}}
-  const response=await fetch(CONFIG.backendUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'register',id,operator:localStorage.getItem('ra-operator')||'Campo'})});
+  const response=await fetch(CONFIG.backendUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'register',id,pin:localStorage.getItem('ra-scanner-pin')||'',operator:localStorage.getItem('ra-operator')||'Campo'})});
   return response.json();
 }
 
@@ -43,9 +43,17 @@ async function card(){
 
 function scanner(){
   shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button><label for="manual">Oppure inserisci il codice</label><input id="manual" placeholder="RA-P-…" autocomplete="off"><button class="secondary" id="lookup">CERCA</button><p class="notice">Dopo la registrazione la schermata torna automaticamente pronta per il prossimo atleta.</p>`);
-  document.querySelector('#start').onclick=startCamera;
-  document.querySelector('#lookup').onclick=()=>openPerson(document.querySelector('#manual').value);
-  document.querySelector('#manual').addEventListener('keydown',e=>{if(e.key==='Enter')openPerson(e.target.value)});
+  document.querySelector('#start').onclick=()=>{if(ensurePin())startCamera()};
+  document.querySelector('#lookup').onclick=()=>{if(ensurePin())openPerson(document.querySelector('#manual').value)};
+  document.querySelector('#manual').addEventListener('keydown',e=>{if(e.key==='Enter'&&ensurePin())openPerson(e.target.value)});
+}
+
+function ensurePin(){
+  if(localStorage.getItem('ra-scanner-pin'))return true;
+  const pin=prompt('Inserisci il PIN operatore');
+  if(!pin)return false;
+  localStorage.setItem('ra-scanner-pin',pin.trim());
+  return true;
 }
 
 async function startCamera(){
