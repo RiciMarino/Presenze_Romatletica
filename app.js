@@ -102,7 +102,7 @@ async function card(){
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button><p class="notice" id="background-note">Archivio e registrazioni vengono sincronizzati automaticamente.</p>`);
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button>`);
   flushQueue();
   syncRoster(true);
   document.querySelector('#start').onclick=async()=>{
