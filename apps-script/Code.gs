@@ -53,6 +53,7 @@ function getPublicPerson_(id) {
       state: String(record.Stato || 'PROVA').toUpperCase(),
       trials: Number(record['Prove effettuate'] || 0),
       maxTrials: Number(config.MAX_PROVE || 2),
+      requestedDate: publicDate_(record['Data richiesta prova'] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
     }
   };
@@ -163,7 +164,7 @@ function athleteIndexByCf_(sheet, map) {
 }
 
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
-  const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita']];
+  const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita'],['Data richiesta prova','Data richiesta']];
   pairs.forEach(([target,key]) => { if (source[key] !== undefined && map[target] !== undefined) sheet.getRange(rowNumber,map[target]+1).setValue(source[key]); });
   if (type === 'ISCRITTI') sheet.getRange(rowNumber,map.Stato+1).setValue('ISCRITTO');
 }
@@ -178,6 +179,7 @@ function appendAthlete_(sheet, map, id, source, type) {
   row[map.Email] = source.Email || '';
   row[map.Telefono] = source.Telefono || '';
   row[map['Data di nascita']] = source['Data di Nascita'] || '';
+  if (map['Data richiesta prova'] !== undefined) row[map['Data richiesta prova']] = source['Data richiesta'] || '';
   row[map.Stato] = type === 'ISCRITTI' ? 'ISCRITTO' : 'PROVA';
   row[map['Prove effettuate']] = 0;
   row[map['Link tessera']] = `${config.BASE_SITE_URL}?view=card&id=${encodeURIComponent(id)}`;
@@ -241,7 +243,11 @@ function setupArchive() {
 
 function hardenArchive() {
   const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
-  const map = headerMap_(sheet);
+  let map = headerMap_(sheet);
+  if (map['Data richiesta prova'] === undefined) {
+    sheet.getRange(1,sheet.getLastColumn()+1).setValue('Data richiesta prova');
+    map = headerMap_(sheet);
+  }
   const config = readConfig_();
   const rowCount = sheet.getLastRow() - 1;
   if (rowCount < 1) throw new Error('Nessun atleta presente');
@@ -254,9 +260,34 @@ function hardenArchive() {
   }
   sheet.getRange(2,map.ID_ROMATLETICA+1,rowCount,1).setValues(ids);
   sheet.getRange(2,map['Link tessera']+1,rowCount,1).setValues(links);
+  populateRequestedDates_(sheet,map,rowCount);
   setConfigValue_('SCANNER_PIN','DA_IMPOSTARE');
   SpreadsheetApp.flush();
   return `${rowCount} ID protetti generati. Imposta SCANNER_PIN nel foglio Config.`;
+}
+
+function populateRequestedDates_(athletesSheet,map,rowCount) {
+  const raw = spreadsheet_().getSheetByName('Import_Richieste');
+  if (!raw || raw.getLastRow() < 2) return;
+  const rawValues = raw.getDataRange().getValues();
+  const rawHeaders = rawValues[0].map(normalizeHeader_);
+  const cfIndex = rawHeaders.indexOf('codicefiscale');
+  const dateIndex = rawHeaders.indexOf('datarichiesta');
+  if (cfIndex < 0 || dateIndex < 0) return;
+  const datesByCf = {};
+  rawValues.slice(1).forEach(row => {
+    const cf = String(row[cfIndex] || '').trim().toUpperCase();
+    if (cf) datesByCf[cf] = row[dateIndex] || '';
+  });
+  const cfs = athletesSheet.getRange(2,map['Codice fiscale']+1,rowCount,1).getDisplayValues();
+  athletesSheet.getRange(2,map['Data richiesta prova']+1,rowCount,1).setValues(cfs.map(row => [datesByCf[String(row[0]).trim().toUpperCase()] || '']));
+  athletesSheet.getRange(2,map['Data richiesta prova']+1,rowCount,1).setNumberFormat('dd/MM/yyyy');
+}
+
+function publicDate_(value) {
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Europe/Rome', 'dd/MM/yyyy');
+  return String(value);
 }
 
 function setConfigValue_(key, value) {
