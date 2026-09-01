@@ -9,6 +9,8 @@ function shell(html){app.innerHTML=`<section class="card">${html}</section>`}
 function loading(){shell('<div class="spinner" aria-label="Caricamento"></div><p>Caricamento…</p>')}
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function normalizedId(value){const raw=String(value||'').trim();try{const url=new URL(raw);return String(url.searchParams.get('id')||raw).trim().toUpperCase()}catch{return raw.toUpperCase()}}
+function completedTrialsLabel(p){const n=Number(p.trials||0);return n===0?'NESSUNA PROVA EFFETTUATA':n===1?'1 PROVA EFFETTUATA':`${n} PROVE EFFETTUATE`}
+function nextTrialLabel(p){const n=Number(p.trials||0);return n===0?'Prossima: prima prova gratuita':n===1?'Prossima: seconda e ultima prova gratuita':''}
 
 async function getPerson(id){
   id=normalizedId(id);
@@ -36,7 +38,7 @@ async function card(){
     if(!p)return unknown();
     const active=p.state==='ISCRITTO';
     const ended=!active&&p.trials>=p.maxTrials;
-    shell(`<div class="eyebrow">Tessera digitale</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Mostra questo QR all’ingresso del campo.</p>`);
+    shell(`<div class="eyebrow">Tessera digitale</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'2 PROVE GRATUITE COMPLETATE':completedTrialsLabel(p)}</div>${!active&&!ended?`<p><strong>${nextTrialLabel(p)}</strong></p>`:''}${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Mostra questo QR all’ingresso del campo.</p>`);
     new QRCode(document.querySelector('#qr'),{text:p.id,width:280,height:280,colorDark:'#123d73',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   }catch(error){connectionError(error)}
 }
@@ -72,13 +74,14 @@ async function openPerson(rawId){
   try{
     const p=await getPerson(id);if(!p)return unknown();
     const active=p.state==='ISCRITTO';const ended=!active&&p.trials>=p.maxTrials;
-    shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${ended?'<p>Per continuare è necessario completare l’iscrizione.</p>':`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
+    shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROSSIMA: PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${ended?'<p>Per continuare è necessario completare l’iscrizione.</p>':`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
     const button=document.querySelector('#register');if(button)button.onclick=()=>register(id,button);
   }catch(error){connectionError(error)}
 }
 
 async function register(id,button){
   button.disabled=true;button.textContent='REGISTRAZIONE…';
+  shell('<div class="spinner" aria-label="Registrazione in corso"></div><h1>Registrazione in corso…</h1><p>Attendi senza chiudere questa schermata.</p>');
   try{
     const result=await registerPerson(id);
     if(!result||!result.ok){if(result&&result.blocked)return openPerson(id);throw new Error(result&&result.error||'Registrazione non riuscita')}
