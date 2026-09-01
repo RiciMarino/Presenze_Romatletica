@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <base target="_top">
+  <style>
+    body{font-family:Arial,sans-serif;padding:18px;color:#172033}h2{color:#123d73;margin-top:0}label{display:block;font-weight:700;margin:16px 0 7px}select,input,button{width:100%;padding:12px;border-radius:10px;border:1px solid #cbd5e1;font-size:15px}button{margin-top:18px;background:#123d73;color:#fff;border:0;font-weight:700;cursor:pointer}.note{font-size:13px;color:#667085;line-height:1.4}.status{margin-top:16px;padding:12px;border-radius:10px;background:#eef5fb;display:none}.error{background:#fff0ef;color:#b42318}
+  </style>
+</head>
+<body>
+  <h2>Importa report Golee</h2>
+  <p class="note">Il file viene letto tramite le intestazioni. L’ordine e il numero delle colonne possono cambiare; deve essere presente “Codice fiscale”.</p>
+  <label for="type">Tipo di report</label>
+  <select id="type"><option value="PROVE">Richieste di prova</option><option value="ISCRITTI">Iscritti effettivi</option></select>
+  <label for="file">File Excel o CSV</label>
+  <input id="file" type="file" accept=".xlsx,.xls,.csv">
+  <button id="run">IMPORTA</button>
+  <div id="status" class="status"></div>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const status=document.querySelector('#status');
+    const show=(text,error=false)=>{status.textContent=text;status.style.display='block';status.className='status'+(error?' error':'')};
+    document.querySelector('#run').onclick=()=>{
+      const file=document.querySelector('#file').files[0];
+      if(!file){show('Seleziona un file.',true);return}
+      show('Lettura del file…');
+      const reader=new FileReader();
+      reader.onload=e=>{
+        try{
+          const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+          if(data.length<2)throw new Error('Il file non contiene righe da importare');
+          show('Importazione in corso…');
+          google.script.run.withSuccessHandler(result=>{
+            show(`Completato: ${result.read} righe lette, ${result.created} nuovi atleti, ${result.updated} aggiornati.`);
+          }).withFailureHandler(error=>show(error.message||String(error),true)).importGolee({type:document.querySelector('#type').value,headers:data[0],rows:data.slice(1)});
+        }catch(error){show(error.message||String(error),true)}
+      };
+      reader.readAsArrayBuffer(file);
+    };
+  </script>
+</body>
+</html>
