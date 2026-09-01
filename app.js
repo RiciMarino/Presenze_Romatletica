@@ -3,6 +3,11 @@ const DEMO={"RA-P-7K4M9Q":{id:"RA-P-7K4M9Q",name:"Mario Rossi",state:"PROVA",tri
 const app=document.querySelector('#app');
 const params=new URLSearchParams(location.search);
 const view=params.get('view')||'home';
+const accessKey=params.get('key');
+if(accessKey){
+  localStorage.setItem('ra-scanner-pin',accessKey.trim());
+  const clean=new URL(location.href);clean.searchParams.delete('key');history.replaceState({},'',clean.pathname+clean.search);
+}
 let scannerInstance=null;
 const ROSTER_KEY='ra-scanner-roster-v1';
 const QUEUE_KEY='ra-scanner-queue-v1';
@@ -41,10 +46,8 @@ function queue(){try{return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]')}ca
 function saveQueue(value){localStorage.setItem(QUEUE_KEY,JSON.stringify(value));updateSyncStatus()}
 function eventId(){return self.crypto&&crypto.randomUUID?crypto.randomUUID():`ra-${Date.now()}-${Math.random().toString(16).slice(2)}`}
 
-async function syncRoster(){
-  if(!ensurePin())return false;
-  const button=document.querySelector('#prepare');
-  if(button){button.disabled=true;button.textContent='PREPARAZIONE…'}
+async function syncRoster(silent=false){
+  if(!ensurePin()){if(!silent)alert('Questo dispositivo non è autorizzato. Apri il link scanner privato.');return false}
   try{
     const data=await postBackend({action:'sync',pin:localStorage.getItem('ra-scanner-pin')||''});
     if(!data.ok)throw new Error(data.error||'Sincronizzazione non riuscita');
@@ -53,10 +56,8 @@ async function syncRoster(){
     updateSyncStatus();flushQueue();
     return true;
   }catch(error){
-    alert(error.message||'Impossibile preparare l’elenco. Controlla la connessione.');
+    if(!silent||!Object.keys(roster()).length)alert(error.message||'Impossibile preparare l’elenco. Controlla la connessione.');
     return false;
-  }finally{
-    if(button){button.disabled=false;button.textContent='AGGIORNA ELENCO'}
   }
 }
 
@@ -101,20 +102,18 @@ async function card(){
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="sync-status" class="status"></div><button class="secondary" id="prepare">PREPARA / AGGIORNA ELENCO</button><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button><label for="manual">Oppure inserisci il codice</label><input id="manual" placeholder="RA-…" autocomplete="off"><button class="secondary" id="lookup">CERCA</button><p class="notice">Le registrazioni vengono salvate subito sul telefono e sincronizzate automaticamente.</p>`);
-  updateSyncStatus();flushQueue();
-  document.querySelector('#prepare').onclick=syncRoster;
-  document.querySelector('#start').onclick=async()=>{if(!ensurePin())return;if(!Object.keys(roster()).length&&!(await syncRoster()))return;startCamera()};
-  document.querySelector('#lookup').onclick=async()=>{if(!ensurePin())return;if(!Object.keys(roster()).length&&!(await syncRoster()))return;openPerson(document.querySelector('#manual').value)};
-  document.querySelector('#manual').addEventListener('keydown',async e=>{if(e.key==='Enter'&&ensurePin()){if(!Object.keys(roster()).length&&!(await syncRoster()))return;openPerson(e.target.value)}});
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start">ATTIVA FOTOCAMERA</button><p class="notice" id="background-note">Archivio e registrazioni vengono sincronizzati automaticamente.</p>`);
+  flushQueue();
+  syncRoster(true);
+  document.querySelector('#start').onclick=async()=>{
+    if(!ensurePin()){alert('Apri il link scanner privato fornito da Romatletica.');return}
+    if(!Object.keys(roster()).length&&!(await syncRoster()))return;
+    startCamera();
+  };
 }
 
 function ensurePin(){
-  if(localStorage.getItem('ra-scanner-pin'))return true;
-  const pin=prompt('Inserisci il PIN operatore');
-  if(!pin)return false;
-  localStorage.setItem('ra-scanner-pin',pin.trim());
-  return true;
+  return Boolean(localStorage.getItem('ra-scanner-pin'));
 }
 
 async function startCamera(){
