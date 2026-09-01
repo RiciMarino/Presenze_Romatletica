@@ -34,8 +34,9 @@ function doGet(e) {
 function doPost(e) {
   try {
     const payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (payload.action !== 'register') throw new Error('Azione non valida');
-    return json_(registerPresence_(payload));
+    if (payload.action === 'register') return json_(registerPresence_(payload));
+    if (payload.action === 'sync') return json_(getScannerRoster_(payload));
+    throw new Error('Azione non valida');
   } catch (error) {
     return json_({ ok: false, error: error.message });
   }
@@ -59,6 +60,32 @@ function getPublicPerson_(id) {
   };
 }
 
+function verifyScannerPin_(payload, config) {
+  const expectedPin = String(config.SCANNER_PIN || '').trim();
+  const suppliedPin = String(payload.pin || '').trim();
+  if (!expectedPin || expectedPin === 'DA_IMPOSTARE' || suppliedPin !== expectedPin) throw new Error('PIN operatore non valido');
+}
+
+function getScannerRoster_(payload) {
+  const config = readConfig_();
+  verifyScannerPin_(payload, config);
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
+  if (!sheet || sheet.getLastRow() < 2) return { ok: true, people: [], syncedAt: new Date().toISOString() };
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map(String);
+  const map = headers.reduce((acc,h,i) => { acc[h] = i; return acc; }, {});
+  const people = values.slice(1).filter(row => String(row[map.ID_ROMATLETICA] || '').trim()).map(row => ({
+    id: String(row[map.ID_ROMATLETICA] || '').trim().toUpperCase(),
+    name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
+    state: String(row[map.Stato] || 'PROVA').toUpperCase(),
+    trials: Number(row[map['Prove effettuate']] || 0),
+    maxTrials: Number(config.MAX_PROVE || 2),
+    requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
+    signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
+  }));
+  return { ok: true, people, syncedAt: new Date().toISOString() };
+}
+
 function registerPresence_(payload) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -68,9 +95,7 @@ function registerPresence_(payload) {
     if (!record) throw new Error('QR non riconosciuto');
     const config = readConfig_();
     const maxTrials = Number(config.MAX_PROVE || 2);
-    const expectedPin = String(config.SCANNER_PIN || '').trim();
-    const suppliedPin = String(payload.pin || '').trim();
-    if (!expectedPin || expectedPin === 'DA_IMPOSTARE' || suppliedPin !== expectedPin) throw new Error('PIN operatore non valido');
+    verifyScannerPin_(payload, config);
     const state = String(record.Stato || 'PROVA').toUpperCase();
     const trials = Number(record['Prove effettuate'] || 0);
     if (state !== 'ISCRITTO' && trials >= maxTrials) {
@@ -79,12 +104,13 @@ function registerPresence_(payload) {
     const presenze = spreadsheet_().getSheetByName(SHEET_PRESENZE);
     if (!presenze) throw new Error('Foglio Presenze mancante');
     const now = new Date();
-    if (isRecentDuplicate_(presenze, id, now)) {
+    const eventId = String(payload.eventId || '').trim();
+    if ((eventId && isProcessedEvent_(presenze, eventId)) || isRecentDuplicate_(presenze, id, now)) {
       return { ok: true, duplicate: true, message: 'Presenza già registrata', person: getPublicPerson_(id).person };
     }
     const type = state === 'ISCRITTO' ? 'ALLENAMENTO' : 'PROVA';
     const nextTrial = type === 'PROVA' ? trials + 1 : '';
-    presenze.appendRow([now,id,record.Cognome || '',record.Nome || '',type,nextTrial,String(payload.operator || ''),'']);
+    presenze.appendRow([now,id,record.Cognome || '',record.Nome || '',type,nextTrial,String(payload.operator || ''),eventId]);
     const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
     const headers = headerMap_(atleti);
     if (type === 'PROVA') atleti.getRange(record.__row, headers['Prove effettuate'] + 1).setValue(nextTrial);
@@ -209,6 +235,13 @@ function writeRawImport_(headers, rows, type) {
 function logImport_(type, read, created, updated) {
   const sheet = spreadsheet_().getSheetByName(SHEET_LOG);
   sheet.appendRow([new Date(),type,read,created,updated]);
+}
+
+function isProcessedEvent_(sheet,eventId) {
+  const lastRow = sheet.getLastRow();
+  if (!eventId || lastRow < 2) return false;
+  const start = Math.max(2,lastRow-500);
+  return sheet.getRange(start,8,lastRow-start+1,1).getDisplayValues().flat().some(value => String(value).trim() === eventId);
 }
 
 function isRecentDuplicate_(sheet,id,now) {
