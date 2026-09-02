@@ -7,10 +7,10 @@
   </style>
 </head>
 <body>
-  <h2>Importa report Golee</h2>
-  <p class="note">Il file viene letto tramite le intestazioni. L’ordine e il numero delle colonne possono cambiare; deve essere presente “Codice fiscale”.</p>
+  <h2>Importa scarico Golee</h2>
+  <p class="note">Per le prove usa lo scarico della sezione Golee “Richieste approvate”. Il sistema legge le intestazioni, evita duplicati tramite il codice fiscale e prepara automaticamente le tessere e le mail.</p>
   <label for="type">Tipo di report</label>
-  <select id="type"><option value="PROVE">Richieste di prova</option><option value="ISCRITTI">Iscritti effettivi</option></select>
+  <select id="type"><option value="PROVE">Richieste approvate (prove)</option><option value="ISCRITTI">Iscritti effettivi</option></select>
   <label for="file">File Excel o CSV</label>
   <input id="file" type="file" accept=".xlsx,.xls,.csv">
   <button id="run">IMPORTA</button>
@@ -32,7 +32,7 @@
           if(data.length<2)throw new Error('Il file non contiene righe da importare');
           show('Importazione in corso…');
           google.script.run.withSuccessHandler(result=>{
-            show(`Completato: ${result.read} righe lette, ${result.created} nuovi atleti, ${result.updated} aggiornati.`);
+            show(`Completato: ${result.read} righe lette, ${result.created} nuovi atleti, ${result.updated} aggiornati. Tessere pronte per l’invio: ${result.mailQueued||0}.`);
           }).withFailureHandler(error=>show(error.message||String(error),true)).importGolee({type:document.querySelector('#type').value,headers:data[0],rows:data.slice(1)});
         }catch(error){show(error.message||String(error),true)}
       };
