@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    *{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#172033;background:#f7f9fc}
+    h2{color:#123d73;margin:0 0 5px}.intro{margin:0 0 18px;color:#667085;line-height:1.45}.bar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap}
+    .quota{font-size:13px;color:#667085}.actions{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .primary{background:#123d73;color:#fff}.secondary{background:#e8eef6;color:#123d73}.primary:disabled,.secondary:disabled{opacity:.5;cursor:wait}
+    .list{background:#fff;border:1px solid #dce5f0;border-radius:12px;overflow:hidden}.row{display:grid;grid-template-columns:32px 1fr auto;gap:10px;padding:13px 14px;border-bottom:1px solid #edf1f6;align-items:center}
+    .row:last-child{border-bottom:0}.name{font-weight:700}.detail{font-size:13px;color:#667085;margin-top:4px}.tag{font-size:11px;font-weight:800;border-radius:999px;padding:6px 8px;background:#eef5fb;color:#123d73}
+    .tag.error{background:#fff0ef;color:#b42318}.preview{font-size:12px;background:transparent;color:#123d73;padding:5px 0;text-decoration:underline}.empty{padding:35px;text-align:center;color:#667085}
+    .status{display:none;margin:12px 0;padding:12px;border-radius:9px;background:#eef5fb}.status.error{background:#fff0ef;color:#b42318}
+    dialog{width:min(680px,95vw);border:0;border-radius:14px;padding:0;box-shadow:0 18px 50px #0003}dialog::backdrop{background:#17203388}
+    .dialog-head{padding:16px 20px;border-bottom:1px solid #e5eaf1;display:flex;justify-content:space-between;gap:10px}.dialog-body{padding:18px;max-height:70vh;overflow:auto;background:#f4f7fb}
+    .mail-frame{background:#fff;border-radius:10px;padding:0;overflow:hidden}.close{background:#e8eef6;color:#123d73;padding:8px 11px}
+    @media(max-width:600px){.row{grid-template-columns:28px 1fr}.tag{grid-column:2;justify-self:start}}
+  </style>
+</head>
+<body>
+  <h2>Tessere da inviare</h2>
+  <p class="intro">Controlla i destinatari, apri l’anteprima se vuoi e invia soltanto le tessere selezionate. Le mail già inviate non vengono riproposte.</p>
+  <div class="bar">
+    <label><input id="all" type="checkbox"> Seleziona tutte</label>
+    <div class="actions">
+      <span id="quota" class="quota"></span>
+      <button id="reload" class="secondary">AGGIORNA</button>
+      <button id="send" class="primary">INVIA SELEZIONATE</button>
+    </div>
+  </div>
+  <div id="status" class="status"></div>
+  <div id="list" class="list"><div class="empty">Caricamento…</div></div>
+
+  <dialog id="dialog">
+    <div class="dialog-head"><div><strong id="previewSubject"></strong><div id="previewTo" class="detail"></div></div><button class="close" onclick="dialog.close()">CHIUDI</button></div>
+    <div class="dialog-body"><div id="previewHtml" class="mail-frame"></div></div>
+  </dialog>
+
+  <script>
+    const list=document.querySelector('#list');
+    const statusBox=document.querySelector('#status');
+    const sendButton=document.querySelector('#send');
+    const reloadButton=document.querySelector('#reload');
+    const allBox=document.querySelector('#all');
+    const dialog=document.querySelector('#dialog');
+    const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const setBusy=busy=>{sendButton.disabled=busy;reloadButton.disabled=busy};
+    const showStatus=(text,error=false)=>{statusBox.textContent=text;statusBox.style.display='block';statusBox.className='status'+(error?' error':'')};
+    function load(){
+      setBusy(true);statusBox.style.display='none';
+      google.script.run.withSuccessHandler(data=>{
+        setBusy(false);
+        document.querySelector('#quota').textContent='Disponibilità oggi: '+data.remainingQuota+' mail';
+        render(data.items||[]);
+      }).withFailureHandler(error=>{setBusy(false);showStatus(error.message||String(error),true)}).getMailQueue();
+    }
+    function render(items){
+      allBox.checked=false;
+      if(!items.length){list.innerHTML='<div class="empty"><strong>Nessuna tessera da inviare.</strong><br>Importa un nuovo scarico delle richieste approvate.</div>';return}
+      list.innerHTML=items.map(item=>`
+        <div class="row">
+          <input class="pick" type="checkbox" value="${escapeHtml(item.id)}">
+          <div>
+            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="detail">${escapeHtml(item.email||'EMAIL MANCANTE')}${item.requestedDate?' · prova richiesta per '+escapeHtml(item.requestedDate):''}</div>
+            <button class="preview" data-id="${escapeHtml(item.id)}">VEDI ANTEPRIMA</button>
+          </div>
+          <span class="tag ${item.status==='ERRORE'?'error':''}" title="${escapeHtml(item.result)}">${escapeHtml(item.status)}</span>
+        </div>`).join('');
+      document.querySelectorAll('.preview').forEach(button=>button.onclick=()=>preview(button.dataset.id));
+    }
+    function preview(id){
+      showStatus('Preparazione anteprima…');
+      google.script.run.withSuccessHandler(data=>{
+        statusBox.style.display='none';
+        document.querySelector('#previewSubject').textContent=data.subject;
+        document.querySelector('#previewTo').textContent='A: '+data.to;
+        document.querySelector('#previewHtml').innerHTML=data.html;
+        dialog.showModal();
+      }).withFailureHandler(error=>showStatus(error.message||String(error),true)).getTrialEmailPreview(id);
+    }
+    function send(){
+      const ids=[...document.querySelectorAll('.pick:checked')].map(input=>input.value);
+      if(!ids.length){showStatus('Seleziona almeno una tessera.',true);return}
+      if(!confirm('Inviare '+ids.length+' mail personalizzate dalla segreteria?'))return;
+      setBusy(true);showStatus('Invio in corso… non chiudere questa finestra.');
+      google.script.run.withSuccessHandler(result=>{
+        setBusy(false);
+        const errors=(result.errors||[]).length;
+        showStatus('Inviate: '+result.sent+'. Saltate: '+result.skipped+'. Errori: '+errors+'.',errors>0);
+        load();
+      }).withFailureHandler(error=>{setBusy(false);showStatus(error.message||String(error),true)}).sendTrialCardEmails(ids);
+    }
+    allBox.onchange=()=>document.querySelectorAll('.pick').forEach(input=>input.checked=allBox.checked);
+    reloadButton.onclick=load;
+    sendButton.onclick=send;
+    load();
+  </script>
+</body>
+</html>
