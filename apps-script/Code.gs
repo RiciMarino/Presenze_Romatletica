@@ -208,6 +208,14 @@ function athleteIndexByCf_(sheet, map) {
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
   const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita'],['Data richiesta prova','Data richiesta']];
   pairs.forEach(([target,key]) => { if (source[key] !== undefined && map[target] !== undefined) sheet.getRange(rowNumber,map[target]+1).setValue(source[key]); });
+  if (type === 'PROVE' && map['Stato invio tessera'] !== undefined) {
+    const mailStatus = String(sheet.getRange(rowNumber, map['Stato invio tessera'] + 1).getDisplayValue() || '').trim();
+    if (mailStatus !== MAIL_STATUS_SENT) {
+      sheet.getRange(rowNumber, map['Stato invio tessera'] + 1).setValue(MAIL_STATUS_PENDING);
+      if (map['Email invio'] !== undefined && source.Email !== undefined) sheet.getRange(rowNumber, map['Email invio'] + 1).setValue(source.Email);
+      if (map['Esito invio'] !== undefined) sheet.getRange(rowNumber, map['Esito invio'] + 1).clearContent();
+    }
+  }
   if (type === 'ISCRITTI') sheet.getRange(rowNumber,map.Stato+1).setValue('ISCRITTO');
 }
 
@@ -451,7 +459,7 @@ function sendTrialCardEmails(ids) {
 
 function buildTrialEmail_(record) {
   const config = readConfig_();
-  const to = String(record.Email || record['Email invio'] || '').trim();
+  const to = String(record['Email invio'] || record.Email || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new Error('Indirizzo email mancante o non valido');
   const fullName = `${record.Nome || ''} ${record.Cognome || ''}`.trim();
   const cardUrl = String(record['Link tessera'] || '').trim();
