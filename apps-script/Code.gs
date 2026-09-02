@@ -2,12 +2,17 @@ const SHEET_ATLETI = 'Atleti';
 const SHEET_PRESENZE = 'Presenze';
 const SHEET_CONFIG = 'Config';
 const SHEET_LOG = 'Import_Log';
+const MAIL_HEADERS = ['Stato invio tessera', 'Data invio tessera', 'Email invio', 'Esito invio'];
+const MAIL_STATUS_PENDING = 'DA INVIARE';
+const MAIL_STATUS_SENT = 'INVIATA';
+const MAIL_STATUS_ERROR = 'ERRORE';
 
 function onOpen() {
   const active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', active.getId());
   SpreadsheetApp.getUi().createMenu('Romatletica')
-    .addItem('Importa report Golee', 'showImportDialog')
+    .addItem('Importa richieste Golee', 'showImportDialog')
+    .addItem('Gestisci invio tessere', 'showMailDialog')
     .addSeparator()
     .addItem('Controlla configurazione', 'checkConfiguration')
     .addToUi();
@@ -17,6 +22,14 @@ function showImportDialog() {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutputFromFile('Import').setWidth(520).setHeight(520),
     'Importa report Golee'
+  );
+}
+
+function showMailDialog() {
+  ensureMailSystem_();
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutputFromFile('Mail').setWidth(760).setHeight(650),
+    'Invio tessere personali'
   );
 }
 
@@ -131,10 +144,12 @@ function importGolee(payload) {
   if (cfIndex < 0) throw new Error('Manca la colonna “Codice fiscale”');
   const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
   if (!atleti) throw new Error('Foglio Atleti mancante');
+  ensureMailSystem_(atleti);
   const map = headerMap_(atleti);
   const existing = athleteIndexByCf_(atleti, map);
   let created = 0;
   let updated = 0;
+  let mailQueued = 0;
   payload.rows.forEach(row => {
     const cf = String(row[cfIndex] || '').trim().toUpperCase();
     if (!cf) return;
@@ -148,11 +163,12 @@ function importGolee(payload) {
       appendAthlete_(atleti, map, id, source, type);
       existing[cf] = atleti.getLastRow();
       created++;
+      if (type === 'PROVE') mailQueued++;
     }
   });
   writeRawImport_(payload.headers, payload.rows, type);
   logImport_(type, payload.rows.length, created, updated);
-  return { ok: true, read: payload.rows.length, created, updated };
+  return { ok: true, read: payload.rows.length, created, updated, mailQueued };
 }
 
 function findAthlete_(id) {
@@ -209,6 +225,8 @@ function appendAthlete_(sheet, map, id, source, type) {
   row[map.Stato] = type === 'ISCRITTI' ? 'ISCRITTO' : 'PROVA';
   row[map['Prove effettuate']] = 0;
   row[map['Link tessera']] = `${config.BASE_SITE_URL}?view=card&id=${encodeURIComponent(id)}`;
+  if (map['Stato invio tessera'] !== undefined) row[map['Stato invio tessera']] = type === 'PROVE' ? MAIL_STATUS_PENDING : '';
+  if (map['Email invio'] !== undefined) row[map['Email invio']] = source.Email || '';
   sheet.appendRow(row);
 }
 
@@ -329,6 +347,156 @@ function setConfigValue_(key, value) {
   const index = rows.findIndex((row,i) => i > 0 && String(row[0]).trim() === key);
   if (index >= 0) sheet.getRange(index+1,2).setValue(value);
   else sheet.appendRow([key,value]);
+}
+
+
+function ensureMailSystem_(athletesSheet) {
+  const sheet = athletesSheet || spreadsheet_().getSheetByName(SHEET_ATLETI);
+  if (!sheet) throw new Error('Foglio Atleti mancante');
+  let map = headerMap_(sheet);
+  MAIL_HEADERS.forEach(header => {
+    if (map[header] !== undefined) return;
+    const column = sheet.getLastColumn() + 1;
+    sheet.getRange(1, column).setValue(header);
+    sheet.getRange(1, 1).copyTo(sheet.getRange(1, column), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    if (sheet.getMaxRows() > 1 && column > 1) {
+      sheet.getRange(2, column - 1, sheet.getMaxRows() - 1, 1)
+        .copyTo(sheet.getRange(2, column, sheet.getMaxRows() - 1, 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+    map = headerMap_(sheet);
+  });
+  if (map['Data invio tessera'] !== undefined) {
+    sheet.getRange(2, map['Data invio tessera'] + 1, Math.max(1, sheet.getMaxRows() - 1), 1)
+      .setNumberFormat('dd/MM/yyyy HH:mm');
+  }
+  const config = readConfig_();
+  if (!config.LINK_LOCANDINE) {
+    setConfigValue_('LINK_LOCANDINE', 'https://drive.google.com/drive/folders/1jq340d9ebFmfffUcqirUp4_JqTfQ8ACQ?usp=sharing');
+  }
+  return headerMap_(sheet);
+}
+
+function getMailQueue() {
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
+  const map = ensureMailSystem_(sheet);
+  if (sheet.getLastRow() < 2) return { items: [], remainingQuota: MailApp.getRemainingDailyQuota() };
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const items = values.map((row, index) => ({
+    row: index + 2,
+    id: String(row[map.ID_ROMATLETICA] || '').trim(),
+    name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
+    email: String(row[map['Email invio']] || row[map.Email] || '').trim(),
+    status: String(row[map['Stato invio tessera']] || MAIL_STATUS_PENDING).trim(),
+    requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
+    sentAt: publicDateTime_(row[map['Data invio tessera']] || ''),
+    result: String(row[map['Esito invio']] || '').trim(),
+    state: String(row[map.Stato] || '').toUpperCase()
+  })).filter(item => item.id && item.state === 'PROVA' && item.status !== MAIL_STATUS_SENT);
+  return { items, remainingQuota: MailApp.getRemainingDailyQuota() };
+}
+
+function getTrialEmailPreview(id) {
+  const record = findAthlete_(String(id || ''));
+  if (!record) throw new Error('Atleta non trovato');
+  const message = buildTrialEmail_(record);
+  return { to: message.to, subject: message.subject, html: message.htmlBody };
+}
+
+function sendTrialCardEmails(ids) {
+  const selected = [...new Set((ids || []).map(value => String(value || '').trim()).filter(Boolean))];
+  if (!selected.length) throw new Error('Seleziona almeno una tessera');
+  const available = MailApp.getRemainingDailyQuota();
+  if (selected.length > available) throw new Error(`Quota giornaliera insufficiente: restano ${available} invii`);
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
+  const map = ensureMailSystem_(sheet);
+  const result = { sent: 0, skipped: 0, errors: [] };
+  selected.forEach(id => {
+    const record = findAthlete_(id);
+    if (!record) {
+      result.errors.push(`${id}: atleta non trovato`);
+      return;
+    }
+    const statusCell = sheet.getRange(record.__row, map['Stato invio tessera'] + 1);
+    const currentStatus = String(statusCell.getDisplayValue() || '').trim();
+    if (currentStatus === MAIL_STATUS_SENT) {
+      result.skipped++;
+      return;
+    }
+    try {
+      const message = buildTrialEmail_(record);
+      statusCell.setValue('IN INVIO');
+      SpreadsheetApp.flush();
+      MailApp.sendEmail({
+        to: message.to,
+        subject: message.subject,
+        body: message.plainBody,
+        htmlBody: message.htmlBody,
+        name: 'ASD Romatletica',
+        replyTo: 'segreteriaromatletica@gmail.com'
+      });
+      statusCell.setValue(MAIL_STATUS_SENT);
+      sheet.getRange(record.__row, map['Data invio tessera'] + 1).setValue(new Date());
+      sheet.getRange(record.__row, map['Email invio'] + 1).setValue(message.to);
+      sheet.getRange(record.__row, map['Esito invio'] + 1).setValue('Tessera inviata correttamente');
+      result.sent++;
+    } catch (error) {
+      statusCell.setValue(MAIL_STATUS_ERROR);
+      sheet.getRange(record.__row, map['Esito invio'] + 1).setValue(String(error.message || error));
+      result.errors.push(`${record.Nome || ''} ${record.Cognome || ''}: ${error.message || error}`);
+    }
+  });
+  SpreadsheetApp.flush();
+  return result;
+}
+
+function buildTrialEmail_(record) {
+  const config = readConfig_();
+  const to = String(record.Email || record['Email invio'] || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new Error('Indirizzo email mancante o non valido');
+  const fullName = `${record.Nome || ''} ${record.Cognome || ''}`.trim();
+  const cardUrl = String(record['Link tessera'] || '').trim();
+  if (!cardUrl) throw new Error('Link tessera mancante');
+  const requestedDate = publicDate_(record['Data richiesta prova'] || '');
+  const season = String(config.STAGIONE || '2026/27');
+  const flyersUrl = String(config.LINK_LOCANDINE || '').trim();
+  const subject = `ASD Romatletica – Tessera QR per le prove di ${fullName}`;
+  const dateLine = requestedDate ? `<p style="margin:0 0 16px"><strong>Data indicata nella richiesta:</strong> ${escapeHtml_(requestedDate)}</p>` : '';
+  const flyersLine = flyersUrl ? `<p style="margin:18px 0 0;font-size:14px">Per consultare giorni, orari e informazioni sui corsi: <a href="${escapeHtml_(flyersUrl)}" style="color:#123d73;font-weight:700">apri le locandine ${escapeHtml_(season)}</a>.</p>` : '';
+  const htmlBody = `<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#172033">
+  <div style="max-width:620px;margin:0 auto;padding:24px 12px">
+    <div style="background:#fff;border-radius:16px;overflow:hidden;border:1px solid #dce5f0">
+      <div style="padding:24px 28px;border-bottom:5px solid #123d73">
+        <div style="font-size:28px;font-weight:800;color:#123d73;letter-spacing:.3px">ASD Romatletica</div>
+        <div style="margin-top:4px;color:#667085">Atletica leggera a Roma · Stagione ${escapeHtml_(season)}</div>
+      </div>
+      <div style="padding:28px">
+        <p style="margin:0 0 16px">Buongiorno,</p>
+        <p style="margin:0 0 16px">abbiamo preparato la <strong>tessera personale per le prove di ${escapeHtml_(fullName)}</strong>.</p>
+        ${dateLine}
+        <p style="margin:0 0 20px">Conserva questa email e mostra il QR presente nella tessera all’ingresso del campo. Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione; in base alla categoria sono previste una o due giornate di prova.</p>
+        <div style="text-align:center;margin:28px 0">
+          <a href="${escapeHtml_(cardUrl)}" style="display:inline-block;background:#123d73;color:#fff;text-decoration:none;font-weight:800;padding:15px 24px;border-radius:10px">APRI LA TESSERA PERSONALE</a>
+        </div>
+        <p style="margin:0;font-size:13px;color:#667085">Il collegamento è personale: non inoltrarlo ad altre famiglie.</p>
+        ${flyersLine}
+        <p style="margin:26px 0 0">A presto al campo!<br><strong>La Segreteria ASD Romatletica</strong></p>
+      </div>
+    </div>
+  </div></body></html>`;
+  const plainBody = `Buongiorno,\n\nabbiamo preparato la tessera personale per le prove di ${fullName}.${requestedDate ? `\nData indicata nella richiesta: ${requestedDate}.` : ''}\n\nApri la tessera personale:\n${cardUrl}\n\nConserva questa email e mostra il QR all’ingresso del campo.\n\nA presto al campo!\nLa Segreteria ASD Romatletica`;
+  return { to, subject, htmlBody, plainBody };
+}
+
+function publicDateTime_(value) {
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Europe/Rome', 'dd/MM/yyyy HH:mm');
+  return String(value);
+}
+
+function escapeHtml_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function checkConfiguration() {
