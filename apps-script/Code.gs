@@ -154,7 +154,8 @@ function importGolee(payload) {
   ensureMailSystem_(atleti);
   const map = headerMap_(atleti);
   const existingByCf = athleteRowsByCf_(atleti, map);
-  const existingRequests = athleteIndexByRequest_(atleti, map);
+  const existingRequests = athleteRowsByRequest_(atleti, map);
+  const requestUsage = {};
   let created = 0;
   let updated = 0;
   let mailQueued = 0;
@@ -164,7 +165,10 @@ function importGolee(payload) {
     const source = rowObject_(payload.headers, row);
     if (type === 'PROVE') {
       const requestKey = athleteRequestKey_(cf, source['Data richiesta']);
-      const currentRow = existingRequests[requestKey];
+      const occurrence = Number(requestUsage[requestKey] || 0);
+      const matchingRows = existingRequests[requestKey] || [];
+      const currentRow = matchingRows[occurrence];
+      requestUsage[requestKey] = occurrence + 1;
       if (currentRow) {
         updateAthleteRow_(atleti, map, currentRow, source, type);
         updated++;
@@ -172,7 +176,8 @@ function importGolee(payload) {
         const id = uniqueId_(atleti, map);
         appendAthlete_(atleti, map, id, source, type);
         const newRow = atleti.getLastRow();
-        existingRequests[requestKey] = newRow;
+        if (!existingRequests[requestKey]) existingRequests[requestKey] = [];
+        existingRequests[requestKey].push(newRow);
         if (!existingByCf[cf]) existingByCf[cf] = [];
         existingByCf[cf].push(newRow);
         created++;
@@ -252,14 +257,15 @@ function athleteRowsByCf_(sheet, map) {
   }, {});
 }
 
-function athleteIndexByRequest_(sheet, map) {
+function athleteRowsByRequest_(sheet, map) {
   if (sheet.getLastRow() < 2) return {};
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
   return values.reduce((acc, row, index) => {
     const cf = normalizeCf_(row[map['Codice fiscale']]);
     if (!cf) return acc;
     const key = athleteRequestKey_(cf, row[map['Data richiesta prova']]);
-    acc[key] = index + 2;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(index + 2);
     return acc;
   }, {});
 }
