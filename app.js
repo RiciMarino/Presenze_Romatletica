@@ -23,7 +23,7 @@ function nextTrialLabel(p){const n=Number(p.trials||0);return n===0?'Prossima: p
 async function getPerson(id){
   id=normalizedId(id);
   if(CONFIG.demoMode||!CONFIG.backendUrl){const local=JSON.parse(localStorage.getItem(`ra-demo-${id}`)||'null');return local||DEMO[id]||null}
-  const response=await fetch(`${CONFIG.backendUrl}?action=person&id=${encodeURIComponent(id)}`,{cache:'no-store'});
+  const response=await fetch(`${CONFIG.backendUrl}?action=person&id=${encodeURIComponent(id)}&_=${Date.now()}`,{cache:'no-store'});
   const data=await response.json();
   if(!data.ok)return null;
   return data.person;
