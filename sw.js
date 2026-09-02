@@ -1,5 +1,5 @@
-const CACHE='romatletica-presenze-v2';
-const LOCAL=['./','./index.html','./style.css?v=4','./config.js?v=2','./app.js?v=11','./logo.png'];
+const CACHE='romatletica-presenze-v3';
+const LOCAL=['./','./index.html','./style.css?v=4','./config.js?v=2','./app.js?v=12','./logo.png'];
 const EXTERNAL=[
   'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js',
   'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
@@ -25,6 +25,11 @@ self.addEventListener('activate',event=>{
 self.addEventListener('fetch',event=>{
   const request=event.request;
   if(request.method!=='GET')return;
+  const url=new URL(request.url);
+  if(url.hostname==='script.google.com'||url.hostname==='script.googleusercontent.com'){
+    event.respondWith(fetch(request));
+    return;
+  }
   if(request.mode==='navigate'){
     event.respondWith(fetch(request).catch(()=>caches.match('./index.html')));
     return;
