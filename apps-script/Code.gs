@@ -65,7 +65,7 @@ function getPublicPerson_(id) {
       id: record.ID_ROMATLETICA,
       name: `${record.Nome || ''} ${record.Cognome || ''}`.trim(),
       state: String(record.Stato || 'PROVA').toUpperCase(),
-      trials: Number(record['Prove effettuate'] || 0),
+      trials: totalTrialsForCf_(record['Codice fiscale']),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(record['Data richiesta prova'] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
@@ -87,15 +87,19 @@ function getScannerRoster_(payload) {
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(String);
   const map = headers.reduce((acc,h,i) => { acc[h] = i; return acc; }, {});
-  const people = values.slice(1).filter(row => String(row[map.ID_ROMATLETICA] || '').trim()).map(row => ({
-    id: String(row[map.ID_ROMATLETICA] || '').trim().toUpperCase(),
-    name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
-    state: String(row[map.Stato] || 'PROVA').toUpperCase(),
-    trials: Number(row[map['Prove effettuate']] || 0),
-    maxTrials: Number(config.MAX_PROVE || 2),
-    requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
-    signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
-  }));
+  const trialTotals = trialTotalsByCf_(values.slice(1), map);
+  const people = values.slice(1).filter(row => String(row[map.ID_ROMATLETICA] || '').trim()).map(row => {
+    const cf = normalizeCf_(row[map['Codice fiscale']]);
+    return {
+      id: String(row[map.ID_ROMATLETICA] || '').trim().toUpperCase(),
+      name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
+      state: String(row[map.Stato] || 'PROVA').toUpperCase(),
+      trials: Number(trialTotals[cf] || 0),
+      maxTrials: Number(config.MAX_PROVE || 2),
+      requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
+      signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
+    };
+  });
   return { ok: true, people, syncedAt: new Date().toISOString() };
 }
 
@@ -110,7 +114,7 @@ function registerPresence_(payload) {
     const maxTrials = Number(config.MAX_PROVE || 2);
     verifyScannerPin_(payload, config);
     const state = String(record.Stato || 'PROVA').toUpperCase();
-    const trials = Number(record['Prove effettuate'] || 0);
+    const trials = totalTrialsForCf_(record['Codice fiscale']);
     if (state !== 'ISCRITTO' && trials >= maxTrials) {
       return { ok: false, blocked: true, error: 'Prove gratuite terminate', person: getPublicPerson_(id).person };
     }
@@ -126,7 +130,10 @@ function registerPresence_(payload) {
     presenze.appendRow([now,id,record.Cognome || '',record.Nome || '',type,nextTrial,String(payload.operator || ''),eventId]);
     const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
     const headers = headerMap_(atleti);
-    if (type === 'PROVA') atleti.getRange(record.__row, headers['Prove effettuate'] + 1).setValue(nextTrial);
+    if (type === 'PROVA') {
+      const rowTrials = Number(record['Prove effettuate'] || 0);
+      atleti.getRange(record.__row, headers['Prove effettuate'] + 1).setValue(rowTrials + 1);
+    }
     atleti.getRange(record.__row, headers['Ultima presenza'] + 1).setValue(now);
     SpreadsheetApp.flush();
     return { ok: true, message: type === 'PROVA' ? `Prova ${nextTrial} registrata` : 'Presenza registrata', person: getPublicPerson_(id).person };
@@ -146,24 +153,42 @@ function importGolee(payload) {
   if (!atleti) throw new Error('Foglio Atleti mancante');
   ensureMailSystem_(atleti);
   const map = headerMap_(atleti);
-  const existing = athleteIndexByCf_(atleti, map);
+  const existingByCf = athleteRowsByCf_(atleti, map);
+  const existingRequests = athleteIndexByRequest_(atleti, map);
   let created = 0;
   let updated = 0;
   let mailQueued = 0;
   payload.rows.forEach(row => {
-    const cf = String(row[cfIndex] || '').trim().toUpperCase();
+    const cf = normalizeCf_(row[cfIndex]);
     if (!cf) return;
     const source = rowObject_(payload.headers, row);
-    const currentRow = existing[cf];
-    if (currentRow) {
-      updateAthleteRow_(atleti, map, currentRow, source, type);
-      updated++;
+    if (type === 'PROVE') {
+      const requestKey = athleteRequestKey_(cf, source['Data richiesta']);
+      const currentRow = existingRequests[requestKey];
+      if (currentRow) {
+        updateAthleteRow_(atleti, map, currentRow, source, type);
+        updated++;
+      } else {
+        const id = uniqueId_(atleti, map);
+        appendAthlete_(atleti, map, id, source, type);
+        const newRow = atleti.getLastRow();
+        existingRequests[requestKey] = newRow;
+        if (!existingByCf[cf]) existingByCf[cf] = [];
+        existingByCf[cf].push(newRow);
+        created++;
+        mailQueued++;
+      }
+      return;
+    }
+    const matchingRows = existingByCf[cf] || [];
+    if (matchingRows.length) {
+      matchingRows.forEach(rowNumber => updateAthleteRow_(atleti, map, rowNumber, source, type));
+      updated += matchingRows.length;
     } else {
       const id = uniqueId_(atleti, map);
       appendAthlete_(atleti, map, id, source, type);
-      existing[cf] = atleti.getLastRow();
+      existingByCf[cf] = [atleti.getLastRow()];
       created++;
-      if (type === 'PROVE') mailQueued++;
     }
   });
   writeRawImport_(payload.headers, payload.rows, type);
@@ -195,14 +220,66 @@ function headerMap_(sheet) {
   return headers.reduce((acc,h,i) => { acc[h] = i; return acc; }, {});
 }
 
-function athleteIndexByCf_(sheet, map) {
+function normalizeCf_(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function requestDateKey_(value) {
+  if (!value) return '';
+  if (value instanceof Date && !isNaN(value)) return Utilities.formatDate(value, 'Europe/Rome', 'yyyy-MM-dd');
+  const text = String(value).trim();
+  const italian = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (italian) return `${italian[3]}-${italian[2].padStart(2, '0')}-${italian[1].padStart(2, '0')}`;
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  return normalizeHeader_(text);
+}
+
+function athleteRequestKey_(cf, requestedDate) {
+  return `${normalizeCf_(cf)}|${requestDateKey_(requestedDate)}`;
+}
+
+function athleteRowsByCf_(sheet, map) {
   if (sheet.getLastRow() < 2) return {};
-  const values = sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getLastColumn()).getValues();
-  return values.reduce((acc,row,i) => {
-    const cf = String(row[map['Codice fiscale']] || '').trim().toUpperCase();
-    if (cf) acc[cf] = i + 2;
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  return values.reduce((acc, row, index) => {
+    const cf = normalizeCf_(row[map['Codice fiscale']]);
+    if (cf) {
+      if (!acc[cf]) acc[cf] = [];
+      acc[cf].push(index + 2);
+    }
     return acc;
   }, {});
+}
+
+function athleteIndexByRequest_(sheet, map) {
+  if (sheet.getLastRow() < 2) return {};
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  return values.reduce((acc, row, index) => {
+    const cf = normalizeCf_(row[map['Codice fiscale']]);
+    if (!cf) return acc;
+    const key = athleteRequestKey_(cf, row[map['Data richiesta prova']]);
+    acc[key] = index + 2;
+    return acc;
+  }, {});
+}
+
+function trialTotalsByCf_(rows, map) {
+  return rows.reduce((acc, row) => {
+    const cf = normalizeCf_(row[map['Codice fiscale']]);
+    if (cf) acc[cf] = Number(acc[cf] || 0) + Number(row[map['Prove effettuate']] || 0);
+    return acc;
+  }, {});
+}
+
+function totalTrialsForCf_(cf) {
+  const normalizedCf = normalizeCf_(cf);
+  if (!normalizedCf) return 0;
+  const sheet = spreadsheet_().getSheetByName(SHEET_ATLETI);
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+  const map = headerMap_(sheet);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  return Number(trialTotalsByCf_(rows, map)[normalizedCf] || 0);
 }
 
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
@@ -491,6 +568,10 @@ function buildTrialEmail_(record) {
         <p style="margin:0 0 16px">abbiamo preparato la <strong>tessera personale per le prove di ${escapeHtml_(fullName)}</strong>.</p>
         ${dateLine}
         <p style="margin:0 0 20px">Conserva questa email e mostra il QR presente nella tessera all’ingresso del campo. Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione; in base alla categoria sono previste una o due giornate di prova.</p>
+        <div style="margin:20px 0;padding:16px 18px;background:#eef5fb;border-left:4px solid #123d73;border-radius:8px">
+          <strong style="color:#123d73">Una piccola attenzione per Caracalla</strong>
+          <p style="margin:8px 0 0;line-height:1.5">Nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con <strong>ASD Romatletica</strong>, all’arrivo chiedi espressamente di <strong>ASD Romatletica o di Anna</strong> e mostra questa tessera: sarai così indirizzato al nostro gruppo e ai nostri tecnici, evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.</p>
+        </div>
         <div style="text-align:center;margin:28px 0">
           <a href="${escapeHtml_(cardUrl)}" style="display:inline-block;background:#123d73;color:#fff;text-decoration:none;font-weight:800;padding:15px 24px;border-radius:10px">APRI LA TESSERA PERSONALE</a>
         </div>
@@ -500,7 +581,7 @@ function buildTrialEmail_(record) {
       </div>
     </div>
   </div></body></html>`;
-  const plainBody = `Buongiorno,\n\nabbiamo preparato la tessera personale per le prove di ${fullName}.${requestedDate ? `\nData indicata nella richiesta: ${requestedDate}.` : ''}\n\nApri la tessera personale:\n${cardUrl}\n\nConserva questa email e mostra il QR all’ingresso del campo.\n\nA presto al campo!\nLa Segreteria ASD Romatletica`;
+  const plainBody = `Buongiorno,\n\nabbiamo preparato la tessera personale per le prove di ${fullName}.${requestedDate ? `\nData indicata nella richiesta: ${requestedDate}.` : ''}\n\nApri la tessera personale:\n${cardUrl}\n\nConserva questa email e mostra il QR all’ingresso del campo.\n\nUna piccola attenzione per Caracalla: nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con ASD Romatletica, all’arrivo chiedi espressamente di ASD Romatletica o di Anna e mostra questa tessera, così sarai indirizzato al nostro gruppo e ai nostri tecnici evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.\n\nA presto al campo!\nLa Segreteria ASD Romatletica`;
   return { to, subject, htmlBody, plainBody };
 }
 
