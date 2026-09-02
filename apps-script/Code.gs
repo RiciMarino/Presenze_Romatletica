@@ -473,9 +473,18 @@ function buildTrialEmail_(record) {
   const htmlBody = `<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#172033">
   <div style="max-width:620px;margin:0 auto;padding:24px 12px">
     <div style="background:#fff;border-radius:16px;overflow:hidden;border:1px solid #dce5f0">
-      <div style="padding:24px 28px;border-bottom:5px solid #123d73">
-        <div style="font-size:28px;font-weight:800;color:#123d73;letter-spacing:.3px">ASD Romatletica</div>
-        <div style="margin-top:4px;color:#667085">Atletica leggera a Roma · Stagione ${escapeHtml_(season)}</div>
+      <div style="padding:20px 28px;border-bottom:5px solid #123d73">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+          <tr>
+            <td style="padding:0 18px 0 0;vertical-align:middle">
+              <img src="https://ricimarino.github.io/Presenze_Romatletica/logo.png" width="92" alt="Logo ASD Romatletica" style="display:block;width:92px;max-width:92px;height:auto;border:0">
+            </td>
+            <td style="vertical-align:middle">
+              <div style="font-size:28px;font-weight:800;color:#123d73;letter-spacing:.3px">ASD Romatletica</div>
+              <div style="margin-top:4px;color:#667085">Atletica leggera a Roma · Stagione ${escapeHtml_(season)}</div>
+            </td>
+          </tr>
+        </table>
       </div>
       <div style="padding:28px">
         <p style="margin:0 0 16px">Buongiorno,</p>
