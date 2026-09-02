@@ -337,7 +337,7 @@ function populateRequestedDates_(athletesSheet,map,rowCount) {
 
 function publicDate_(value) {
   if (!value) return '';
-  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Europe/Rome', 'dd/MM/yyyy');
+  if (value instanceof Date) return Utilities.formatDate(value, 'Europe/Rome', 'dd/MM/yyyy');
   return String(value);
 }
 
@@ -489,7 +489,7 @@ function buildTrialEmail_(record) {
 
 function publicDateTime_(value) {
   if (!value) return '';
-  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Europe/Rome', 'dd/MM/yyyy HH:mm');
+  if (value instanceof Date) return Utilities.formatDate(value, 'Europe/Rome', 'dd/MM/yyyy HH:mm');
   return String(value);
 }
 
