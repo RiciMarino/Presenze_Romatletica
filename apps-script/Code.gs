@@ -63,7 +63,7 @@ function getPublicPerson_(id) {
     ok: true,
     person: {
       id: record.ID_ROMATLETICA,
-      name: `${record.Nome || ''} ${record.Cognome || ''}`.trim(),
+      name: personName_(record.Nome, record.Cognome),
       state: String(record.Stato || 'PROVA').toUpperCase(),
       trials: totalTrialsForCf_(record['Codice fiscale']),
       maxTrials: Number(config.MAX_PROVE || 2),
@@ -92,7 +92,7 @@ function getScannerRoster_(payload) {
     const cf = normalizeCf_(row[map['Codice fiscale']]);
     return {
       id: String(row[map.ID_ROMATLETICA] || '').trim().toUpperCase(),
-      name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
+      name: personName_(row[map.Nome], row[map.Cognome]),
       state: String(row[map.Stato] || 'PROVA').toUpperCase(),
       trials: Number(trialTotals[cf] || 0),
       maxTrials: Number(config.MAX_PROVE || 2),
@@ -221,6 +221,15 @@ function headerMap_(sheet) {
   return headers.reduce((acc,h,i) => { acc[h] = i; return acc; }, {});
 }
 
+function titleCaseName_(value) {
+  return String(value || '').trim().toLocaleLowerCase('it-IT')
+    .replace(/(^|[\s'’\-])([a-zà-öø-ÿ])/gu, (match, separator, letter) => separator + letter.toLocaleUpperCase('it-IT'));
+}
+
+function personName_(firstName, lastName) {
+  return `${titleCaseName_(firstName)} ${titleCaseName_(lastName)}`.trim();
+}
+
 function normalizeCf_(value) {
   return String(value || '').trim().toUpperCase();
 }
@@ -289,8 +298,10 @@ function requestedTrialDateFromSource_(source) {
 }
 
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
-  const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita']];
+  const pairs = [['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita']];
   pairs.forEach(([target,key]) => { if (source[key] !== undefined && map[target] !== undefined) sheet.getRange(rowNumber,map[target]+1).setValue(source[key]); });
+  if (source.Cognome !== undefined && map.Cognome !== undefined) sheet.getRange(rowNumber, map.Cognome + 1).setValue(titleCaseName_(source.Cognome));
+  if (source.Nome !== undefined && map.Nome !== undefined) sheet.getRange(rowNumber, map.Nome + 1).setValue(titleCaseName_(source.Nome));
   const requestedTrialDate = requestedTrialDateFromSource_(source);
   if (requestedTrialDate !== undefined && map['Data richiesta prova'] !== undefined) {
     sheet.getRange(rowNumber, map['Data richiesta prova'] + 1).setValue(requestedTrialDate);
@@ -310,8 +321,8 @@ function appendAthlete_(sheet, map, id, source, type) {
   const config = readConfig_();
   const row = new Array(sheet.getLastColumn()).fill('');
   row[map.ID_ROMATLETICA] = id;
-  row[map.Cognome] = source.Cognome || '';
-  row[map.Nome] = source.Nome || '';
+  row[map.Cognome] = titleCaseName_(source.Cognome);
+  row[map.Nome] = titleCaseName_(source.Nome);
   row[map['Codice fiscale']] = source['Codice fiscale'] || '';
   row[map.Email] = source.Email || '';
   row[map.Telefono] = source.Telefono || '';
@@ -479,7 +490,7 @@ function getMailQueue() {
   const items = values.map((row, index) => ({
     row: index + 2,
     id: String(row[map.ID_ROMATLETICA] || '').trim(),
-    name: `${row[map.Nome] || ''} ${row[map.Cognome] || ''}`.trim(),
+    name: personName_(row[map.Nome], row[map.Cognome]),
     email: String(row[map['Email invio']] || row[map.Email] || '').trim(),
     status: String(row[map['Stato invio tessera']] || MAIL_STATUS_PENDING).trim(),
     requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
@@ -548,7 +559,7 @@ function buildTrialEmail_(record) {
   const config = readConfig_();
   const to = String(record['Email invio'] || record.Email || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new Error('Indirizzo email mancante o non valido');
-  const fullName = `${record.Nome || ''} ${record.Cognome || ''}`.trim();
+  const fullName = personName_(record.Nome, record.Cognome);
   const cardUrl = String(record['Link tessera'] || '').trim();
   if (!cardUrl) throw new Error('Link tessera mancante');
   const requestedDate = publicDate_(record['Data richiesta prova'] || '');
