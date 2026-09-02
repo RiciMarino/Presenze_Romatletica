@@ -154,8 +154,7 @@ function importGolee(payload) {
   ensureMailSystem_(atleti);
   const map = headerMap_(atleti);
   const existingByCf = athleteRowsByCf_(atleti, map);
-  const existingRequests = athleteRowsByRequest_(atleti, map);
-  const requestUsage = {};
+  const existingRequests = athleteIndexByRequest_(atleti, map);
   let created = 0;
   let updated = 0;
   let mailQueued = 0;
@@ -164,11 +163,9 @@ function importGolee(payload) {
     if (!cf) return;
     const source = rowObject_(payload.headers, row);
     if (type === 'PROVE') {
-      const requestKey = athleteRequestKey_(cf, source['Data richiesta']);
-      const occurrence = Number(requestUsage[requestKey] || 0);
-      const matchingRows = existingRequests[requestKey] || [];
-      const currentRow = matchingRows[occurrence];
-      requestUsage[requestKey] = occurrence + 1;
+      const requestedTrialDate = requestedTrialDateFromSource_(source);
+      const requestKey = athleteRequestKey_(cf, requestedTrialDate);
+      const currentRow = existingRequests[requestKey];
       if (currentRow) {
         updateAthleteRow_(atleti, map, currentRow, source, type);
         updated++;
@@ -176,8 +173,7 @@ function importGolee(payload) {
         const id = uniqueId_(atleti, map);
         appendAthlete_(atleti, map, id, source, type);
         const newRow = atleti.getLastRow();
-        if (!existingRequests[requestKey]) existingRequests[requestKey] = [];
-        existingRequests[requestKey].push(newRow);
+        existingRequests[requestKey] = newRow;
         if (!existingByCf[cf]) existingByCf[cf] = [];
         existingByCf[cf].push(newRow);
         created++;
@@ -257,15 +253,14 @@ function athleteRowsByCf_(sheet, map) {
   }, {});
 }
 
-function athleteRowsByRequest_(sheet, map) {
+function athleteIndexByRequest_(sheet, map) {
   if (sheet.getLastRow() < 2) return {};
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
   return values.reduce((acc, row, index) => {
     const cf = normalizeCf_(row[map['Codice fiscale']]);
     if (!cf) return acc;
     const key = athleteRequestKey_(cf, row[map['Data richiesta prova']]);
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(index + 2);
+    acc[key] = index + 2;
     return acc;
   }, {});
 }
@@ -288,9 +283,18 @@ function totalTrialsForCf_(cf) {
   return Number(trialTotalsByCf_(rows, map)[normalizedCf] || 0);
 }
 
+function requestedTrialDateFromSource_(source) {
+  if (source['Data richiesta per la prova'] !== undefined) return source['Data richiesta per la prova'];
+  return source['Data richiesta'];
+}
+
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
-  const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita'],['Data richiesta prova','Data richiesta']];
+  const pairs = [['Cognome','Cognome'],['Nome','Nome'],['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita']];
   pairs.forEach(([target,key]) => { if (source[key] !== undefined && map[target] !== undefined) sheet.getRange(rowNumber,map[target]+1).setValue(source[key]); });
+  const requestedTrialDate = requestedTrialDateFromSource_(source);
+  if (requestedTrialDate !== undefined && map['Data richiesta prova'] !== undefined) {
+    sheet.getRange(rowNumber, map['Data richiesta prova'] + 1).setValue(requestedTrialDate);
+  }
   if (type === 'PROVE' && map['Stato invio tessera'] !== undefined) {
     const mailStatus = String(sheet.getRange(rowNumber, map['Stato invio tessera'] + 1).getDisplayValue() || '').trim();
     if (mailStatus !== MAIL_STATUS_SENT) {
@@ -312,7 +316,7 @@ function appendAthlete_(sheet, map, id, source, type) {
   row[map.Email] = source.Email || '';
   row[map.Telefono] = source.Telefono || '';
   row[map['Data di nascita']] = source['Data di Nascita'] || '';
-  if (map['Data richiesta prova'] !== undefined) row[map['Data richiesta prova']] = source['Data richiesta'] || '';
+  if (map['Data richiesta prova'] !== undefined) row[map['Data richiesta prova']] = requestedTrialDateFromSource_(source) || '';
   row[map.Stato] = type === 'ISCRITTI' ? 'ISCRITTO' : 'PROVA';
   row[map['Prove effettuate']] = 0;
   row[map['Link tessera']] = `${config.BASE_SITE_URL}?view=card&id=${encodeURIComponent(id)}`;
