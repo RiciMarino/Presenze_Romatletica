@@ -1,5 +1,5 @@
-const CACHE='romatletica-presenze-v5';
-const LOCAL=['./','./index.html','./style.css?v=6','./config.js?v=2','./app.js?v=14','./logo.png'];
+const CACHE='romatletica-presenze-v6';
+const LOCAL=['./','./index.html','./style.css?v=7','./config.js?v=2','./app.js?v=15','./logo.png'];
 const EXTERNAL=[
   'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js',
   'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
