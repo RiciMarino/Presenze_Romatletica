@@ -66,6 +66,7 @@ function getPublicPerson_(id) {
       name: personName_(record.Nome, record.Cognome),
       state: String(record.Stato || 'PROVA').toUpperCase(),
       trials: totalTrialsForCf_(record['Codice fiscale']),
+      requestTrials: Number(record['Prove effettuate'] || 0),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(record['Data richiesta prova'] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
@@ -95,6 +96,7 @@ function getScannerRoster_(payload) {
       name: personName_(row[map.Nome], row[map.Cognome]),
       state: String(row[map.Stato] || 'PROVA').toUpperCase(),
       trials: Number(trialTotals[cf] || 0),
+      requestTrials: Number(row[map['Prove effettuate']] || 0),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
