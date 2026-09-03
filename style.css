@@ -31,6 +31,8 @@ button:disabled { opacity: .65; cursor: wait; }
 .qr img, .qr canvas { max-width: 100%; height: auto !important; }
 .id { color: var(--muted); font-family: ui-monospace, monospace; font-size: .82rem; }
 .notice { font-size: .86rem; }
+.scanner-message { margin: 12px 2px 0; padding: 12px 14px; background: var(--light); color: var(--blue); border-radius: 12px; font-size: .88rem; font-weight: 700; text-align: left; }
+.compact { padding: 12px 14px; font-size: .88rem; }
 #reader { width: 100%; overflow: hidden; border-radius: 16px; }
 #reader video { border-radius: 16px; }
 label { display: block; margin: 20px 0 8px; text-align: left; font-weight: 800; }
