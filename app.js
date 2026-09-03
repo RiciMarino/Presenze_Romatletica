@@ -29,9 +29,15 @@ async function getPerson(id){
   return data.person;
 }
 
-async function postBackend(payload){
-  const response=await fetch(CONFIG.backendUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
-  return response.json();
+async function postBackend(payload,timeoutMs=20000){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const response=await fetch(CONFIG.backendUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:controller.signal});
+    return response.json();
+  }finally{
+    clearTimeout(timeout);
+  }
 }
 
 async function registerPerson(event){
@@ -49,14 +55,14 @@ function eventId(){return self.crypto&&crypto.randomUUID?crypto.randomUUID():`ra
 async function syncRoster(silent=false){
   if(!ensurePin()){if(!silent)alert('Questo dispositivo non è autorizzato. Apri il link scanner privato.');return false}
   try{
-    const data=await postBackend({action:'sync',pin:localStorage.getItem('ra-scanner-pin')||''});
+    const data=await postBackend({action:'sync',pin:localStorage.getItem('ra-scanner-pin')||''},12000);
     if(!data.ok)throw new Error(data.error||'Sincronizzazione non riuscita');
     const map={};data.people.forEach(person=>map[person.id]=person);saveRoster(map);
     localStorage.setItem('ra-roster-synced-at',data.syncedAt||new Date().toISOString());
     updateSyncStatus();flushQueue();
     return true;
   }catch(error){
-    if(!silent||!Object.keys(roster()).length)alert(error.message||'Impossibile preparare l’elenco. Controlla la connessione.');
+    if(!silent)alert(error.message||'Impossibile aggiornare l’elenco. Controlla la connessione.');
     return false;
   }
 }
@@ -143,31 +149,51 @@ async function card(){
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="notice" hidden></p><section id="upcoming-trials" class="upcoming-trials" aria-label="Prove previste nei prossimi tre giorni"></section>`);
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="scanner-message" hidden></p><button id="retry-sync" class="secondary compact" hidden>RIPROVA AGGIORNAMENTO</button><section id="upcoming-trials" class="upcoming-trials" aria-label="Prove previste nei prossimi tre giorni"></section>`);
   flushQueue();
   const button=document.querySelector('#start');
   button.onclick=()=>startCamera();
+  document.querySelector('#retry-sync').onclick=()=>prepareScanner(button);
   renderUpcomingTrials();
   prepareScanner(button);
 }
 
+function scannerMessage(text='',showRetry=false){
+  const message=document.querySelector('#scanner-message');
+  const retry=document.querySelector('#retry-sync');
+  if(!message||!retry)return;
+  message.hidden=!text;
+  message.textContent=text;
+  retry.hidden=!showRetry;
+}
+
 async function prepareScanner(button){
   if(!ensurePin()){
+    button.disabled=true;
     button.textContent='DISPOSITIVO NON AUTORIZZATO';
-    const message=document.querySelector('#scanner-message');
-    message.hidden=false;message.textContent='Apri il link scanner privato fornito da Romatletica.';
+    scannerMessage('Apri il link scanner privato fornito da Romatletica. Una volta autorizzato, questo telefono resterà pronto per gli accessi.');
     return;
   }
-  if(navigator.onLine)await syncRoster(true);
-  if(Object.keys(roster()).length){
+  const prepared=Boolean(localStorage.getItem('ra-roster-synced-at'));
+  button.disabled=!navigator.onLine&&!prepared;
+  button.textContent=button.disabled?'COLLEGATI A INTERNET':'ATTIVA FOTOCAMERA';
+  if(!navigator.onLine){
+    scannerMessage(prepared?'Modalità offline attiva: puoi continuare a scansionare. Le presenze saranno inviate automaticamente appena torna la connessione.':'Per il primo avvio serve una connessione. Controlla la rete e poi tocca “Riprova aggiornamento”.',true);
+    return;
+  }
+  scannerMessage(prepared?'':'Aggiornamento dell’elenco in corso. Puoi già attivare la fotocamera.');
+  const updated=await syncRoster(true);
+  if(updated){
+    scannerMessage();
     button.disabled=false;
     button.textContent='ATTIVA FOTOCAMERA';
     flushQueue();
     return;
   }
-  button.textContent='CONNESSIONE NECESSARIA';
-  const message=document.querySelector('#scanner-message');
-  message.hidden=false;message.textContent='Collegati a internet una volta per preparare lo scanner.';
+  const usable=prepared||Object.keys(roster()).length>0;
+  button.disabled=!usable;
+  button.textContent=usable?'ATTIVA FOTOCAMERA':'RIPROVA TRA POCO';
+  scannerMessage(usable?'L’elenco salvato è disponibile: puoi continuare a scansionare normalmente. Per cercare nuove prenotazioni, riprova l’aggiornamento.':'Non siamo riusciti ad aggiornare l’elenco. Verifica la rete, chiudi e riapri la pagina oppure tocca “Riprova aggiornamento”.',true);
 }
 
 function ensurePin(){
@@ -179,7 +205,7 @@ async function startCamera(){
   try{
     scannerInstance=new Html5Qrcode('reader');
     await scannerInstance.start({facingMode:'environment'},{fps:10,qrbox:{width:240,height:240}},async text=>{await stopCamera();openPerson(text)},()=>{});
-  }catch(error){button.disabled=false;button.textContent='RIPROVA FOTOCAMERA';alert('Fotocamera non disponibile. Puoi inserire il codice scritto sotto al QR.')}
+  }catch(error){button.disabled=false;button.textContent='RIPROVA FOTOCAMERA';alert('La fotocamera non si è avviata. Chiudi e riapri questa pagina e riprova. Se il problema continua, controlla nelle impostazioni del browser che l’uso della fotocamera sia consentito.')}
 }
 
 async function stopCamera(){try{if(scannerInstance&&scannerInstance.isScanning)await scannerInstance.stop()}catch{}scannerInstance=null}
