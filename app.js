@@ -40,7 +40,7 @@ async function registerPerson(event){
 }
 
 function roster(){try{return JSON.parse(localStorage.getItem(ROSTER_KEY)||'{}')}catch{return{}}}
-function saveRoster(value){localStorage.setItem(ROSTER_KEY,JSON.stringify(value))}
+function saveRoster(value){localStorage.setItem(ROSTER_KEY,JSON.stringify(value));renderUpcomingTrials()}
 function getCachedPerson(id){return roster()[normalizedId(id)]||null}
 function queue(){try{return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]')}catch{return[]}}
 function saveQueue(value){localStorage.setItem(QUEUE_KEY,JSON.stringify(value));updateSyncStatus()}
@@ -88,6 +88,46 @@ async function flushQueue(){
 
 function home(){shell(`<div class="eyebrow">Sistema presenze</div><h1>Presenze Romatletica</h1><p>Un solo QR personale per prove gratuite e allenamenti.</p><a class="button" href="?view=scanner">SCANSIONA UN QR</a>${CONFIG.demoMode?'<a class="button secondary" href="?view=card&id=RA-P-7K4M9Q">Tessera dimostrativa</a><a class="button secondary" href="?view=card&id=RA-I-9T6C2V">Esempio iscritto</a><p class="notice">Modalità dimostrativa: nessun dato reale è pubblicato.</p>':''}`)}
 
+function dateAtMidnight(date){return new Date(date.getFullYear(),date.getMonth(),date.getDate())}
+function dateKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
+function parseRequestedDate(value){
+  const match=String(value||'').trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if(!match)return null;
+  const date=new Date(Number(match[3]),Number(match[2])-1,Number(match[1]));
+  return Number.isNaN(date.getTime())?null:date;
+}
+function shortDate(date){return new Intl.DateTimeFormat('it-IT',{day:'2-digit',month:'2-digit'}).format(date)}
+function upcomingTrialLabel(person){
+  if(Number(person.requestTrials||0)>0)return 'Presenza registrata';
+  if(Number(person.trials||0)>=Number(person.maxTrials||2))return 'Prove terminate';
+  return Number(person.trials||0)===0?'Prima prova':'Seconda e ultima prova';
+}
+function renderUpcomingTrials(){
+  const target=document.querySelector('#upcoming-trials');
+  if(!target||!ensurePin())return;
+  const previouslyOpen=new Set([...target.querySelectorAll('.trial-day[open]')].map(day=>day.dataset.offset));
+  const hasRendered=target.dataset.rendered==='true';
+  const today=dateAtMidnight(new Date());
+  const days=['Oggi','Domani','Dopodomani'].map((label,offset)=>{
+    const date=new Date(today);date.setDate(today.getDate()+offset);
+    const people=Object.values(roster()).filter(person=>{
+      if(String(person.state||'PROVA').toUpperCase()!=='PROVA')return false;
+      const requested=parseRequestedDate(person.requestedDate);
+      return requested&&dateKey(requested)===dateKey(date);
+    }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'it',{sensitivity:'base'}));
+    return{label,offset,date,people};
+  });
+  target.dataset.rendered='true';
+  target.innerHTML=`<div class="upcoming-heading"><span>Prove in arrivo</span><small>oggi, domani e dopodomani</small></div>${days.map(day=>{
+    const open=hasRendered?previouslyOpen.has(String(day.offset)):day.offset===0;
+    const rows=day.people.length?`<ul class="trial-list">${day.people.map(person=>{
+      const registered=Number(person.requestTrials||0)>0;
+      return `<li class="trial-person${registered?' registered':''}"><span class="trial-name">${escapeHtml(person.name)}</span><span class="trial-label">${registered?'✓ ':''}${escapeHtml(upcomingTrialLabel(person))}</span></li>`;
+    }).join('')}</ul>`:'<p class="trial-empty">Nessuna prova prevista.</p>';
+    return `<details class="trial-day" data-offset="${day.offset}"${open?' open':''}><summary><span>${day.label}<small>${shortDate(day.date)}</small></span><strong>${day.people.length}</strong></summary>${rows}</details>`;
+  }).join('')}`;
+}
+
 async function card(){
   loading();
   try{
@@ -102,10 +142,11 @@ async function card(){
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="notice" hidden></p>`);
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="notice" hidden></p><section id="upcoming-trials" class="upcoming-trials" aria-label="Prove previste nei prossimi tre giorni"></section>`);
   flushQueue();
   const button=document.querySelector('#start');
   button.onclick=()=>startCamera();
+  renderUpcomingTrials();
   prepareScanner(button);
 }
 
@@ -159,7 +200,10 @@ async function register(id,p,button){
   button.disabled=true;
   const event={eventId:eventId(),id,operator:localStorage.getItem('ra-operator')||'Campo',createdAt:new Date().toISOString()};
   const map=roster();const local={...p};
-  if(local.state!=='ISCRITTO')local.trials=Math.min(Number(local.maxTrials||2),Number(local.trials||0)+1);
+  if(local.state!=='ISCRITTO'){
+    local.trials=Math.min(Number(local.maxTrials||2),Number(local.trials||0)+1);
+    local.requestTrials=Number(local.requestTrials||0)+1;
+  }
   map[id]=local;saveRoster(map);
   const pending=queue();pending.push(event);saveQueue(pending);
   const label=local.state==='ISCRITTO'?'PRESENZA ACQUISITA':`PROVA ${local.trials} ACQUISITA`;
