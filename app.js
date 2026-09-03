@@ -122,7 +122,8 @@ function renderUpcomingTrials(){
     const open=hasRendered?previouslyOpen.has(String(day.offset)):day.offset===0;
     const rows=day.people.length?`<ul class="trial-list">${day.people.map(person=>{
       const registered=Number(person.requestTrials||0)>0;
-      return `<li class="trial-person${registered?' registered':''}"><span class="trial-name">${escapeHtml(person.name)}</span><span class="trial-label">${registered?'✓ ':''}${escapeHtml(upcomingTrialLabel(person))}</span></li>`;
+      const year=String(person.birthYear||'').trim();
+      return `<li class="trial-person${registered?' registered':''}"><span class="trial-name">${escapeHtml(person.name)}${year?` <small>· ${escapeHtml(year)}</small>`:''}</span><span class="trial-label">${registered?'✓ ':''}${escapeHtml(upcomingTrialLabel(person))}</span></li>`;
     }).join('')}</ul>`:'<p class="trial-empty">Nessuna prova prevista.</p>';
     return `<details class="trial-day" data-offset="${day.offset}"${open?' open':''}><summary><span>${day.label}<small>${shortDate(day.date)}</small></span><strong>${day.people.length}</strong></summary>${rows}</details>`;
   }).join('')}`;
