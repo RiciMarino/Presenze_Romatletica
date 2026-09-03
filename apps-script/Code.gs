@@ -67,6 +67,7 @@ function getPublicPerson_(id) {
       state: String(record.Stato || 'PROVA').toUpperCase(),
       trials: totalTrialsForCf_(record['Codice fiscale']),
       requestTrials: Number(record['Prove effettuate'] || 0),
+      birthYear: birthYear_(record['Data di nascita'] || ''),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(record['Data richiesta prova'] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
@@ -97,6 +98,7 @@ function getScannerRoster_(payload) {
       state: String(row[map.Stato] || 'PROVA').toUpperCase(),
       trials: Number(trialTotals[cf] || 0),
       requestTrials: Number(row[map['Prove effettuate']] || 0),
+      birthYear: birthYear_(row[map['Data di nascita']] || ''),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
@@ -447,6 +449,13 @@ function publicDate_(value) {
   if (!value) return '';
   if (value instanceof Date) return Utilities.formatDate(value, 'Europe/Rome', 'dd/MM/yyyy');
   return String(value);
+}
+
+function birthYear_(value) {
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, 'Europe/Rome', 'yyyy');
+  const match = String(value).match(/\b(?:19|20)\d{2}\b/);
+  return match ? match[0] : '';
 }
 
 function setConfigValue_(key, value) {
