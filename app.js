@@ -1,8 +1,8 @@
 const CONFIG=window.ROMATLETICA_CONFIG||{};
 const DEMO={
-  "RA-P-7K4M9Q":{id:"RA-P-7K4M9Q",name:"Mario Rossi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2012",venue:"Caracalla",signupUrl:""},
-  "RA-P-2F8X3N":{id:"RA-P-2F8X3N",name:"Giulia Bianchi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2014",venue:"Tor Tre Teste",signupUrl:""},
-  "RA-I-9T6C2V":{id:"RA-I-9T6C2V",name:"Andrea Verdi",state:"ISCRITTO",trials:2,maxTrials:2,venue:"Caracalla",signupUrl:""}
+  "RA-P-7K4M9Q":{id:"RA-P-7K4M9Q",name:"Mario Rossi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2012",facility:"Caracalla",signupUrl:""},
+  "RA-P-2F8X3N":{id:"RA-P-2F8X3N",name:"Giulia Bianchi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2014",facility:"Tor Tre Teste",signupUrl:""},
+  "RA-I-9T6C2V":{id:"RA-I-9T6C2V",name:"Andrea Verdi",state:"ISCRITTO",trials:2,maxTrials:2,facility:"Caracalla",signupUrl:""}
 };
 const app=document.querySelector('#app');
 const params=new URLSearchParams(location.search);
@@ -41,6 +41,7 @@ function setSelectedVenue(value){
 }
 function sameVenue(a,b){return normalizeVenue(a)===normalizeVenue(b)}
 function venueLabel(value){return normalizeVenue(value)||'Impianto non indicato'}
+function personFacility(person){return normalizeVenue(person&&(person.facility||person.venue||''))}
 
 async function getPerson(id){
   id=normalizedId(id);
@@ -91,7 +92,7 @@ function updateSyncStatus(){
   const target=document.querySelector('#sync-status');if(!target)return;
   const count=queue().length;
   const venue=selectedVenue();
-  const people=Object.values(roster()).filter(p=>sameVenue(p.venue,venue)).length;
+  const people=Object.values(roster()).filter(p=>sameVenue(personFacility(p),venue)).length;
   target.className=`status ${count?'orange':'green'}`;
   target.textContent=count?`${count} REGISTRAZION${count===1?'E':'I'} DA SINCRONIZZARE`:people?`PRONTO · ${people} ATLETI · ${venue.toUpperCase()}`:'ELENCO DA PREPARARE';
 }
@@ -152,7 +153,7 @@ function renderUpcomingTrials(){
     const date=new Date(today);date.setDate(today.getDate()+offset);
     const people=Object.values(roster()).filter(person=>{
       if(String(person.state||'PROVA').toUpperCase()!=='PROVA')return false;
-      if(!sameVenue(person.venue,venue))return false;
+      if(!sameVenue(personFacility(person),venue))return false;
       const requested=parseRequestedDate(person.requestedDate);
       return requested&&dateKey(requested)===dateKey(date);
     }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'it',{sensitivity:'base'}));
@@ -178,7 +179,8 @@ async function card(){
     if(!p)return unknown();
     const active=p.state==='ISCRITTO';
     const ended=!active&&p.trials>=p.maxTrials;
-    const venue=p.venue?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(venueLabel(p.venue))}</p>`:'';
+    const facility=personFacility(p);
+    const venue=facility?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(venueLabel(facility))}</p>`:'';
     shell(`<div class="eyebrow">${active?'Tessera personale Romatletica':'Tessera personale per le prove gratuite'}</div><h1>${escapeHtml(p.name)}</h1><p class="card-intro">${active?'Conserva questa tessera personale e mostra il QR all’ingresso del campo.':'Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione. In base alla categoria è possibile partecipare a una o due giornate di prova.<br><strong>Conserva questa tessera personale e mostra il QR all’ingresso del campo.</strong>'}</p><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'2 PROVE GRATUITE COMPLETATE':completedTrialsLabel(p)}</div>${!active&&!ended?`<p><strong>${nextTrialLabel(p)}</strong></p>`:''}${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${venue}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Il QR è personale e resta valido per entrambe le prove.</p>`);
     new QRCode(document.querySelector('#qr'),{text:p.id,width:280,height:280,colorDark:'#123d73',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   }catch(error){connectionError(error)}
@@ -259,13 +261,13 @@ async function openPerson(rawId){
   const active=p.state==='ISCRITTO';
   const ended=!active&&p.trials>=p.maxTrials;
   const currentVenue=selectedVenue();
-  const personVenue=normalizeVenue(p.venue);
-  const wrongVenue=!active&&personVenue&&!sameVenue(personVenue,currentVenue);
+  const facility=personFacility(p);
+  const wrongVenue=!active&&facility&&!sameVenue(facility,currentVenue);
   if(wrongVenue){
-    shell(`<div class="eyebrow">Attenzione sede</div><h1>${escapeHtml(p.name)}</h1><div class="status red">PROVA PRENOTATA A ${escapeHtml(personVenue.toUpperCase())}</div><p>Questo dispositivo è impostato su <strong>${escapeHtml(currentVenue)}</strong>. La prova non viene registrata qui.</p><a class="button secondary" href="?view=scanner">TORNA ALLO SCANNER</a>`);
+    shell(`<div class="eyebrow">Attenzione sede</div><h1>${escapeHtml(p.name)}</h1><div class="status red">PROVA PRENOTATA A ${escapeHtml(facility.toUpperCase())}</div><p>Questo dispositivo è impostato su <strong>${escapeHtml(currentVenue)}</strong>. La prova non viene registrata qui.</p><a class="button secondary" href="?view=scanner">TORNA ALLO SCANNER</a>`);
     return;
   }
-  shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROSSIMA: PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${personVenue?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(personVenue)}</p>`:''}${ended?`<p>Per continuare è necessario completare l’iscrizione.</p>${p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">VAI ALL’ISCRIZIONE DEL CORSO 2026/27</a>`:''}`:`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
+  shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROSSIMA: PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${facility?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(facility)}</p>`:''}${ended?`<p>Per continuare è necessario completare l’iscrizione.</p>${p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">VAI ALL’ISCRIZIONE DEL CORSO 2026/27</a>`:''}`:`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
   const button=document.querySelector('#register');if(button)button.onclick=()=>register(id,p,button);
 }
 
