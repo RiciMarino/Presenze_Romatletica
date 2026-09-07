@@ -70,6 +70,7 @@ function getPublicPerson_(id) {
       birthYear: birthYear_(record['Data di nascita'] || ''),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(record['Data richiesta prova'] || ''),
+      facility: String(record['Impianto sportivo'] || '').trim(),
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
     }
   };
@@ -101,6 +102,7 @@ function getScannerRoster_(payload) {
       birthYear: birthYear_(row[map['Data di nascita']] || ''),
       maxTrials: Number(config.MAX_PROVE || 2),
       requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
+      facility: map['Impianto sportivo'] !== undefined ? String(row[map['Impianto sportivo']] || '').trim() : '',
       signupUrl: String(config.LINK_ISCRIZIONE_GOLEE || '')
     };
   });
