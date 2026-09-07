@@ -1,16 +1,23 @@
 const CONFIG=window.ROMATLETICA_CONFIG||{};
-const DEMO={"RA-P-7K4M9Q":{id:"RA-P-7K4M9Q",name:"Mario Rossi",state:"PROVA",trials:0,maxTrials:2,signupUrl:""},"RA-P-2F8X3N":{id:"RA-P-2F8X3N",name:"Giulia Bianchi",state:"PROVA",trials:2,maxTrials:2,signupUrl:""},"RA-I-9T6C2V":{id:"RA-I-9T6C2V",name:"Andrea Verdi",state:"ISCRITTO",trials:2,maxTrials:2,signupUrl:""}};
+const DEMO={
+  "RA-P-7K4M9Q":{id:"RA-P-7K4M9Q",name:"Mario Rossi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2012",venue:"Caracalla",signupUrl:""},
+  "RA-P-2F8X3N":{id:"RA-P-2F8X3N",name:"Giulia Bianchi",state:"PROVA",trials:0,maxTrials:2,requestedDate:"10/09/2026",birthYear:"2014",venue:"Tor Tre Teste",signupUrl:""},
+  "RA-I-9T6C2V":{id:"RA-I-9T6C2V",name:"Andrea Verdi",state:"ISCRITTO",trials:2,maxTrials:2,venue:"Caracalla",signupUrl:""}
+};
 const app=document.querySelector('#app');
 const params=new URLSearchParams(location.search);
 const view=params.get('view')||'home';
 const accessKey=params.get('key');
 if(accessKey){
   localStorage.setItem('ra-scanner-pin',accessKey.trim());
-  const clean=new URL(location.href);clean.searchParams.delete('key');history.replaceState({},'',clean.pathname+clean.search);
+  const clean=new URL(location.href);
+  clean.searchParams.delete('key');
+  history.replaceState({},'',clean.pathname+clean.search);
 }
 let scannerInstance=null;
 const ROSTER_KEY='ra-scanner-roster-v2';
 const QUEUE_KEY='ra-scanner-queue-v2';
+const VENUE_KEY='ra-scanner-venue-v1';
 let syncing=false;
 
 function shell(html){app.innerHTML=`<section class="card">${html}</section>`}
@@ -19,6 +26,21 @@ function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':
 function normalizedId(value){const raw=String(value||'').trim();try{const url=new URL(raw);return String(url.searchParams.get('id')||raw).trim().toUpperCase()}catch{return raw.toUpperCase()}}
 function completedTrialsLabel(p){const n=Number(p.trials||0);return n===0?'NESSUNA PROVA EFFETTUATA':n===1?'1 PROVA EFFETTUATA':`${n} PROVE EFFETTUATE`}
 function nextTrialLabel(p){const n=Number(p.trials||0);return n===0?'Prossima: prima prova gratuita':n===1?'Prossima: seconda e ultima prova gratuita':''}
+function normalizeVenue(value){
+  const v=String(value||'').trim().toLocaleLowerCase('it-IT').replace(/\s+/g,' ');
+  if(!v)return '';
+  if(v.includes('caracalla'))return 'Caracalla';
+  if(v.includes('tre teste'))return 'Tor Tre Teste';
+  return String(value||'').trim();
+}
+function selectedVenue(){return normalizeVenue(localStorage.getItem(VENUE_KEY)||'Caracalla')||'Caracalla'}
+function setSelectedVenue(value){
+  localStorage.setItem(VENUE_KEY,normalizeVenue(value)||'Caracalla');
+  renderVenueSelector();
+  renderUpcomingTrials();
+}
+function sameVenue(a,b){return normalizeVenue(a)===normalizeVenue(b)}
+function venueLabel(value){return normalizeVenue(value)||'Impianto non indicato'}
 
 async function getPerson(id){
   id=normalizedId(id);
@@ -35,9 +57,7 @@ async function postBackend(payload,timeoutMs=20000){
   try{
     const response=await fetch(CONFIG.backendUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:controller.signal});
     return response.json();
-  }finally{
-    clearTimeout(timeout);
-  }
+  }finally{clearTimeout(timeout)}
 }
 
 async function registerPerson(event){
@@ -69,9 +89,11 @@ async function syncRoster(silent=false){
 
 function updateSyncStatus(){
   const target=document.querySelector('#sync-status');if(!target)return;
-  const count=queue().length;const people=Object.keys(roster()).length;
+  const count=queue().length;
+  const venue=selectedVenue();
+  const people=Object.values(roster()).filter(p=>sameVenue(p.venue,venue)).length;
   target.className=`status ${count?'orange':'green'}`;
-  target.textContent=count?`${count} REGISTRAZION${count===1?'E':'I'} DA SINCRONIZZARE`:people?`PRONTO · ${people} ATLETI · TUTTO SINCRONIZZATO`:'ELENCO DA PREPARARE';
+  target.textContent=count?`${count} REGISTRAZION${count===1?'E':'I'} DA SINCRONIZZARE`:people?`PRONTO · ${people} ATLETI · ${venue.toUpperCase()}`:'ELENCO DA PREPARARE';
 }
 
 async function flushQueue(){
@@ -85,11 +107,8 @@ async function flushQueue(){
       if(result.person){const map=roster();map[result.person.id]=result.person;saveRoster(map)}
       pending.shift();saveQueue(pending);
     }
-  }catch(error){
-    updateSyncStatus();
-  }finally{
-    syncing=false;updateSyncStatus();
-  }
+  }catch(error){updateSyncStatus()}
+  finally{syncing=false;updateSyncStatus()}
 }
 
 function home(){shell(`<div class="eyebrow">Sistema presenze</div><h1>Presenze Romatletica</h1><p>Un solo QR personale per prove gratuite e allenamenti.</p><a class="button" href="?view=scanner">SCANSIONA UN QR</a>${CONFIG.demoMode?'<a class="button secondary" href="?view=card&id=RA-P-7K4M9Q">Tessera dimostrativa</a><a class="button secondary" href="?view=card&id=RA-I-9T6C2V">Esempio iscritto</a><p class="notice">Modalità dimostrativa: nessun dato reale è pubblicato.</p>':''}`)}
@@ -108,9 +127,24 @@ function upcomingTrialLabel(person){
   if(Number(person.trials||0)>=Number(person.maxTrials||2))return 'Prove terminate';
   return Number(person.trials||0)===0?'Prima prova':'Seconda e ultima prova';
 }
+
+function renderVenueSelector(){
+  const target=document.querySelector('#venue-selector');if(!target)return;
+  const current=selectedVenue();
+  target.innerHTML=`
+    <div class="upcoming-heading"><span>Impianto</span><small>mostra solo le prove di questa sede</small></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 18px">
+      <button type="button" class="${current==='Caracalla'?'':'secondary'} compact" data-venue="Caracalla">CARACALLA</button>
+      <button type="button" class="${current==='Tor Tre Teste'?'':'secondary'} compact" data-venue="Tor Tre Teste">TOR TRE TESTE</button>
+    </div>`;
+  target.querySelectorAll('[data-venue]').forEach(button=>button.onclick=()=>setSelectedVenue(button.dataset.venue));
+  updateSyncStatus();
+}
+
 function renderUpcomingTrials(){
   const target=document.querySelector('#upcoming-trials');
   if(!target||!ensurePin())return;
+  const venue=selectedVenue();
   const previouslyOpen=new Set([...target.querySelectorAll('.trial-day[open]')].map(day=>day.dataset.offset));
   const hasRendered=target.dataset.rendered==='true';
   const today=dateAtMidnight(new Date());
@@ -118,19 +152,20 @@ function renderUpcomingTrials(){
     const date=new Date(today);date.setDate(today.getDate()+offset);
     const people=Object.values(roster()).filter(person=>{
       if(String(person.state||'PROVA').toUpperCase()!=='PROVA')return false;
+      if(!sameVenue(person.venue,venue))return false;
       const requested=parseRequestedDate(person.requestedDate);
       return requested&&dateKey(requested)===dateKey(date);
     }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'it',{sensitivity:'base'}));
     return{label,offset,date,people};
   });
   target.dataset.rendered='true';
-  target.innerHTML=`<div class="upcoming-heading"><span>Prove in arrivo</span><small>oggi, domani e dopodomani</small></div>${days.map(day=>{
+  target.innerHTML=`<div class="upcoming-heading"><span>Prove in arrivo · ${escapeHtml(venue)}</span><small>oggi, domani e dopodomani</small></div>${days.map(day=>{
     const open=hasRendered?previouslyOpen.has(String(day.offset)):day.offset===0;
     const rows=day.people.length?`<ul class="trial-list">${day.people.map(person=>{
       const registered=Number(person.requestTrials||0)>0;
       const year=String(person.birthYear||'').trim();
       return `<li class="trial-person${registered?' registered':''}"><span class="trial-name">${escapeHtml(person.name)}${year?` <small>· ${escapeHtml(year)}</small>`:''}</span><span class="trial-label">${registered?'✓ ':''}${escapeHtml(upcomingTrialLabel(person))}</span></li>`;
-    }).join('')}</ul>`:'<p class="trial-empty">Nessuna prova prevista.</p>';
+    }).join('')}</ul>`:'<p class="trial-empty">Nessuna prova prevista in questa sede.</p>';
     return `<details class="trial-day" data-offset="${day.offset}"${open?' open':''}><summary><span>${day.label}<small>${shortDate(day.date)}</small></span><strong>${day.people.length}</strong></summary>${rows}</details>`;
   }).join('')}`;
 }
@@ -143,17 +178,19 @@ async function card(){
     if(!p)return unknown();
     const active=p.state==='ISCRITTO';
     const ended=!active&&p.trials>=p.maxTrials;
-    shell(`<div class="eyebrow">${active?'Tessera personale Romatletica':'Tessera personale per le prove gratuite'}</div><h1>${escapeHtml(p.name)}</h1><p class="card-intro">${active?'Conserva questa tessera personale e mostra il QR all’ingresso del campo.':'Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione. In base alla categoria è possibile partecipare a una o due giornate di prova.<br><strong>Conserva questa tessera personale e mostra il QR all’ingresso del campo.</strong>'}</p><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'2 PROVE GRATUITE COMPLETATE':completedTrialsLabel(p)}</div>${!active&&!ended?`<p><strong>${nextTrialLabel(p)}</strong></p>`:''}${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Il QR è personale e resta valido per entrambe le prove.</p>`);
+    const venue=p.venue?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(venueLabel(p.venue))}</p>`:'';
+    shell(`<div class="eyebrow">${active?'Tessera personale Romatletica':'Tessera personale per le prove gratuite'}</div><h1>${escapeHtml(p.name)}</h1><p class="card-intro">${active?'Conserva questa tessera personale e mostra il QR all’ingresso del campo.':'Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione. In base alla categoria è possibile partecipare a una o due giornate di prova.<br><strong>Conserva questa tessera personale e mostra il QR all’ingresso del campo.</strong>'}</p><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'2 PROVE GRATUITE COMPLETATE':completedTrialsLabel(p)}</div>${!active&&!ended?`<p><strong>${nextTrialLabel(p)}</strong></p>`:''}${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${venue}<div id="qr" class="qr" aria-label="QR personale"></div><div class="id">${escapeHtml(p.id)}</div>${ended&&p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">ISCRIVITI A ROMATLETICA</a>`:''}<p>Il QR è personale e resta valido per entrambe le prove.</p>`);
     new QRCode(document.querySelector('#qr'),{text:p.id,width:280,height:280,colorDark:'#123d73',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   }catch(error){connectionError(error)}
 }
 
 function scanner(){
-  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="scanner-message" hidden></p><button id="retry-sync" class="secondary compact" hidden>RIPROVA AGGIORNAMENTO</button><section id="upcoming-trials" class="upcoming-trials" aria-label="Prove previste nei prossimi tre giorni"></section>`);
+  shell(`<div class="eyebrow">Ingresso campo</div><h1>Scansiona il QR</h1><section id="venue-selector" class="upcoming-trials" aria-label="Scelta impianto"></section><div id="reader"></div><button id="start" disabled>PREPARAZIONE…</button><p id="scanner-message" class="scanner-message" hidden></p><button id="retry-sync" class="secondary compact" hidden>RIPROVA AGGIORNAMENTO</button><div id="sync-status" class="status green"></div><section id="upcoming-trials" class="upcoming-trials" aria-label="Prove previste nei prossimi tre giorni"></section>`);
   flushQueue();
   const button=document.querySelector('#start');
   button.onclick=()=>startCamera();
   document.querySelector('#retry-sync').onclick=()=>prepareScanner(button);
+  renderVenueSelector();
   renderUpcomingTrials();
   prepareScanner(button);
 }
@@ -196,16 +233,17 @@ async function prepareScanner(button){
   scannerMessage(usable?'L’elenco salvato è disponibile: puoi continuare a scansionare normalmente. Per cercare nuove prenotazioni, riprova l’aggiornamento.':'Non siamo riusciti ad aggiornare l’elenco. Verifica la rete, chiudi e riapri la pagina oppure tocca “Riprova aggiornamento”.',true);
 }
 
-function ensurePin(){
-  return Boolean(localStorage.getItem('ra-scanner-pin'));
-}
+function ensurePin(){return Boolean(localStorage.getItem('ra-scanner-pin'))}
 
 async function startCamera(){
   const button=document.querySelector('#start');button.disabled=true;button.textContent='FOTOCAMERA ATTIVA';
   try{
     scannerInstance=new Html5Qrcode('reader');
     await scannerInstance.start({facingMode:'environment'},{fps:10,qrbox:{width:240,height:240}},async text=>{await stopCamera();openPerson(text)},()=>{});
-  }catch(error){button.disabled=false;button.textContent='RIPROVA FOTOCAMERA';alert('La fotocamera non si è avviata. Chiudi e riapri questa pagina e riprova. Se il problema continua, controlla nelle impostazioni del browser che l’uso della fotocamera sia consentito.')}
+  }catch(error){
+    button.disabled=false;button.textContent='RIPROVA FOTOCAMERA';
+    alert('La fotocamera non si è avviata. Chiudi e riapri questa pagina e riprova. Se il problema continua, controlla nelle impostazioni del browser che l’uso della fotocamera sia consentito.')
+  }
 }
 
 async function stopCamera(){try{if(scannerInstance&&scannerInstance.isScanning)await scannerInstance.stop()}catch{}scannerInstance=null}
@@ -218,14 +256,22 @@ async function openPerson(rawId){
     try{p=await getPerson(id)}catch(error){return connectionError(error)}
   }
   if(!p)return unknown();
-  const active=p.state==='ISCRITTO';const ended=!active&&p.trials>=p.maxTrials;
-  shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROSSIMA: PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${ended?`<p>Per continuare è necessario completare l’iscrizione.</p>${p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">VAI ALL’ISCRIZIONE DEL CORSO 2026/27</a>`:''}`:`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
+  const active=p.state==='ISCRITTO';
+  const ended=!active&&p.trials>=p.maxTrials;
+  const currentVenue=selectedVenue();
+  const personVenue=normalizeVenue(p.venue);
+  const wrongVenue=!active&&personVenue&&!sameVenue(personVenue,currentVenue);
+  if(wrongVenue){
+    shell(`<div class="eyebrow">Attenzione sede</div><h1>${escapeHtml(p.name)}</h1><div class="status red">PROVA PRENOTATA A ${escapeHtml(personVenue.toUpperCase())}</div><p>Questo dispositivo è impostato su <strong>${escapeHtml(currentVenue)}</strong>. La prova non viene registrata qui.</p><a class="button secondary" href="?view=scanner">TORNA ALLO SCANNER</a>`);
+    return;
+  }
+  shell(`<div class="eyebrow">Verifica atleta</div><h1>${escapeHtml(p.name)}</h1><div class="status ${active?'green':ended?'red':'orange'}">${active?'ISCRITTO':ended?'PROVE GRATUITE TERMINATE':`PROSSIMA: PROVA ${p.trials+1} DI ${p.maxTrials}`}</div>${p.requestedDate?`<p class="requested-date"><strong>Prova richiesta per:</strong> ${escapeHtml(p.requestedDate)}</p>`:''}${personVenue?`<p class="requested-date"><strong>Impianto:</strong> ${escapeHtml(personVenue)}</p>`:''}${ended?`<p>Per continuare è necessario completare l’iscrizione.</p>${p.signupUrl&&!String(p.signupUrl).startsWith('DA_INSERIRE')?`<a class="button" href="${escapeHtml(p.signupUrl)}">VAI ALL’ISCRIZIONE DEL CORSO 2026/27</a>`:''}`:`<button id="register">${active?'REGISTRA PRESENZA':'REGISTRA PROVA'}</button>`}<a class="button secondary" href="?view=scanner">ANNULLA / ALTRO QR</a>`);
   const button=document.querySelector('#register');if(button)button.onclick=()=>register(id,p,button);
 }
 
 async function register(id,p,button){
   button.disabled=true;
-  const event={eventId:eventId(),id,operator:localStorage.getItem('ra-operator')||'Campo',createdAt:new Date().toISOString()};
+  const event={eventId:eventId(),id,operator:localStorage.getItem('ra-operator')||selectedVenue(),createdAt:new Date().toISOString()};
   const map=roster();const local={...p};
   if(local.state!=='ISCRITTO'){
     local.trials=Math.min(Number(local.maxTrials||2),Number(local.trials||0)+1);
@@ -234,7 +280,7 @@ async function register(id,p,button){
   map[id]=local;saveRoster(map);
   const pending=queue();pending.push(event);saveQueue(pending);
   const label=local.state==='ISCRITTO'?'PRESENZA ACQUISITA':`PROVA ${local.trials} ACQUISITA`;
-  shell(`<p class="success">✓</p><h1>${label}</h1><div class="status green">${escapeHtml(local.name)}</div><p>Salvata sul telefono. Sincronizzazione automatica in corso.</p><a class="button" href="?view=scanner">SCANSIONA IL PROSSIMO</a>`);
+  shell(`<p class="success">✓</p><h1>${label}</h1><div class="status green">${escapeHtml(local.name)}</div><p>${escapeHtml(selectedVenue())} · salvata sul telefono. Sincronizzazione automatica in corso.</p><a class="button" href="?view=scanner">SCANSIONA IL PROSSIMO</a>`);
   flushQueue();
   setTimeout(()=>location.href='?view=scanner',1100);
 }
