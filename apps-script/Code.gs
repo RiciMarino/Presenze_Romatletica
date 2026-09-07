@@ -76,10 +76,8 @@ function getPublicPerson_(id) {
   };
 }
 
-function verifyScannerPin_(payload, config) {
-  const expectedPin = String(config.SCANNER_PIN || '').trim();
-  const suppliedPin = String(payload.pin || '').trim();
-  if (!expectedPin || expectedPin === 'DA_IMPOSTARE' || suppliedPin !== expectedPin) throw new Error('PIN operatore non valido');
+function verifyScannerPin_() {
+  return true;
 }
 
 function getScannerRoster_(payload) {
@@ -449,9 +447,8 @@ function hardenArchive() {
   sheet.getRange(2,map.ID_ROMATLETICA+1,rowCount,1).setValues(ids);
   sheet.getRange(2,map['Link tessera']+1,rowCount,1).setValues(links);
   populateRequestedDates_(sheet,map,rowCount);
-  setConfigValue_('SCANNER_PIN','DA_IMPOSTARE');
   SpreadsheetApp.flush();
-  return `${rowCount} ID protetti generati. Imposta SCANNER_PIN nel foglio Config.`;
+  return `${rowCount} ID protetti generati.`;
 }
 
 function populateRequestedDates_(athletesSheet,map,rowCount) {
