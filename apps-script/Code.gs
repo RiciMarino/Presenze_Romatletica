@@ -156,6 +156,7 @@ function importGolee(payload) {
   const atleti = spreadsheet_().getSheetByName(SHEET_ATLETI);
   if (!atleti) throw new Error('Foglio Atleti mancante');
   ensureMailSystem_(atleti);
+  ensureAthleteField_(atleti, 'Impianto sportivo');
   const map = headerMap_(atleti);
   const existingByCf = athleteRowsByCf_(atleti, map);
   const existingRequests = athleteIndexByRequest_(atleti, map);
@@ -223,6 +224,19 @@ function readConfig_() {
 function headerMap_(sheet) {
   const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String);
   return headers.reduce((acc,h,i) => { acc[h] = i; return acc; }, {});
+}
+
+function ensureAthleteField_(sheet, header) {
+  let map = headerMap_(sheet);
+  if (map[header] !== undefined) return map;
+  const column = sheet.getLastColumn() + 1;
+  sheet.getRange(1, column).setValue(header);
+  sheet.getRange(1, 1).copyTo(sheet.getRange(1, column), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  if (sheet.getMaxRows() > 1 && column > 1) {
+    sheet.getRange(2, column - 1, sheet.getMaxRows() - 1, 1)
+      .copyTo(sheet.getRange(2, column, sheet.getMaxRows() - 1, 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  }
+  return headerMap_(sheet);
 }
 
 function titleCaseName_(value) {
@@ -302,7 +316,13 @@ function requestedTrialDateFromSource_(source) {
 }
 
 function updateAthleteRow_(sheet, map, rowNumber, source, type) {
-  const pairs = [['Codice fiscale','Codice fiscale'],['Email','Email'],['Telefono','Telefono'],['Data di nascita','Data di Nascita']];
+  const pairs = [
+    ['Codice fiscale','Codice fiscale'],
+    ['Email','Email'],
+    ['Telefono','Telefono'],
+    ['Data di nascita','Data di Nascita'],
+    ['Impianto sportivo','Impianto sportivo']
+  ];
   pairs.forEach(([target,key]) => { if (source[key] !== undefined && map[target] !== undefined) sheet.getRange(rowNumber,map[target]+1).setValue(source[key]); });
   if (source.Cognome !== undefined && map.Cognome !== undefined) sheet.getRange(rowNumber, map.Cognome + 1).setValue(titleCaseName_(source.Cognome));
   if (source.Nome !== undefined && map.Nome !== undefined) sheet.getRange(rowNumber, map.Nome + 1).setValue(titleCaseName_(source.Nome));
@@ -332,6 +352,7 @@ function appendAthlete_(sheet, map, id, source, type) {
   row[map.Telefono] = source.Telefono || '';
   row[map['Data di nascita']] = source['Data di Nascita'] || '';
   if (map['Data richiesta prova'] !== undefined) row[map['Data richiesta prova']] = requestedTrialDateFromSource_(source) || '';
+  if (map['Impianto sportivo'] !== undefined) row[map['Impianto sportivo']] = source['Impianto sportivo'] || '';
   row[map.Stato] = type === 'ISCRITTI' ? 'ISCRITTO' : 'PROVA';
   row[map['Prove effettuate']] = 0;
   row[map['Link tessera']] = `${config.BASE_SITE_URL}?view=card&id=${encodeURIComponent(id)}`;
@@ -409,6 +430,10 @@ function hardenArchive() {
     sheet.getRange(1,sheet.getLastColumn()+1).setValue('Data richiesta prova');
     map = headerMap_(sheet);
   }
+  if (map['Impianto sportivo'] === undefined) {
+    ensureAthleteField_(sheet, 'Impianto sportivo');
+    map = headerMap_(sheet);
+  }
   const config = readConfig_();
   const rowCount = sheet.getLastRow() - 1;
   if (rowCount < 1) throw new Error('Nessun atleta presente');
@@ -466,7 +491,6 @@ function setConfigValue_(key, value) {
   else sheet.appendRow([key,value]);
 }
 
-
 function ensureMailSystem_(athletesSheet) {
   const sheet = athletesSheet || spreadsheet_().getSheetByName(SHEET_ATLETI);
   if (!sheet) throw new Error('Foglio Atleti mancante');
@@ -505,6 +529,7 @@ function getMailQueue() {
     email: String(row[map['Email invio']] || row[map.Email] || '').trim(),
     status: String(row[map['Stato invio tessera']] || MAIL_STATUS_PENDING).trim(),
     requestedDate: publicDate_(row[map['Data richiesta prova']] || ''),
+    facility: map['Impianto sportivo'] !== undefined ? String(row[map['Impianto sportivo']] || '').trim() : '',
     sentAt: publicDateTime_(row[map['Data invio tessera']] || ''),
     result: String(row[map['Esito invio']] || '').trim(),
     state: String(row[map.Stato] || '').toUpperCase()
@@ -566,6 +591,32 @@ function sendTrialCardEmails(ids) {
   return result;
 }
 
+function buildFacilityNotice_(record) {
+  const facility = String(record['Impianto sportivo'] || '').trim();
+  const normalized = normalizeHeader_(facility);
+  const isTorTreTeste = normalized.includes('tortreteste') || normalized.includes('thortreteste');
+  const isCaracalla = !facility || normalized.includes('caracalla') || normalized.includes('martellini');
+
+  if (isTorTreTeste) {
+    return {
+      html: `<div style="margin:20px 0;padding:16px 18px;background:#eef5fb;border-left:4px solid #123d73;border-radius:8px"><strong style="color:#123d73">Tor Tre Teste</strong><p style="margin:8px 0 0;line-height:1.5">All’arrivo cerca <strong>Katia</strong> e mostra la tessera QR.</p></div>`,
+      plain: 'Tor Tre Teste: all’arrivo cerca Katia e mostra la tessera QR.'
+    };
+  }
+
+  if (isCaracalla) {
+    return {
+      html: `<div style="margin:20px 0;padding:16px 18px;background:#eef5fb;border-left:4px solid #123d73;border-radius:8px"><strong style="color:#123d73">Una piccola attenzione per Caracalla</strong><p style="margin:8px 0 0;line-height:1.5">Nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con <strong>ASD Romatletica</strong>, all’arrivo chiedi espressamente di <strong>ASD Romatletica o di Anna</strong> e mostra questa tessera: sarai così indirizzato al nostro gruppo e ai nostri tecnici, evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.</p></div>`,
+      plain: 'Una piccola attenzione per Caracalla: nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con ASD Romatletica, all’arrivo chiedi espressamente di ASD Romatletica o di Anna e mostra questa tessera, così sarai indirizzato al nostro gruppo e ai nostri tecnici evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.'
+    };
+  }
+
+  return {
+    html: `<div style="margin:20px 0;padding:16px 18px;background:#eef5fb;border-left:4px solid #123d73;border-radius:8px"><strong style="color:#123d73">Indicazioni per il campo</strong><p style="margin:8px 0 0;line-height:1.5">All’arrivo mostra la tessera QR e chiedi di <strong>ASD Romatletica</strong>.</p></div>`,
+    plain: 'All’arrivo mostra la tessera QR e chiedi di ASD Romatletica.'
+  };
+}
+
 function buildTrialEmail_(record) {
   const config = readConfig_();
   const to = String(record['Email invio'] || record.Email || '').trim();
@@ -574,10 +625,13 @@ function buildTrialEmail_(record) {
   const cardUrl = String(record['Link tessera'] || '').trim();
   if (!cardUrl) throw new Error('Link tessera mancante');
   const requestedDate = publicDate_(record['Data richiesta prova'] || '');
+  const facility = String(record['Impianto sportivo'] || '').trim();
   const season = String(config.STAGIONE || '2026/27');
   const flyersUrl = String(config.LINK_LOCANDINE || '').trim();
   const subject = `ASD Romatletica – Tessera QR per le prove di ${fullName}`;
   const dateLine = requestedDate ? `<p style="margin:0 0 16px"><strong>Data indicata nella richiesta:</strong> ${escapeHtml_(requestedDate)}</p>` : '';
+  const facilityLine = facility ? `<p style="margin:0 0 16px"><strong>Impianto:</strong> ${escapeHtml_(facility)}</p>` : '';
+  const facilityNotice = buildFacilityNotice_(record);
   const flyersLine = flyersUrl ? `<p style="margin:18px 0 0;font-size:14px">Per consultare giorni, orari e informazioni sui corsi: <a href="${escapeHtml_(flyersUrl)}" style="color:#123d73;font-weight:700">apri le locandine ${escapeHtml_(season)}</a>.</p>` : '';
   const htmlBody = `<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#172033">
   <div style="max-width:620px;margin:0 auto;padding:24px 12px">
@@ -599,11 +653,9 @@ function buildTrialEmail_(record) {
         <p style="margin:0 0 16px">Buongiorno,</p>
         <p style="margin:0 0 16px">abbiamo preparato la <strong>tessera personale per le prove di ${escapeHtml_(fullName)}</strong>.</p>
         ${dateLine}
+        ${facilityLine}
         <p style="margin:0 0 20px">Conserva questa email e mostra il QR presente nella tessera all’ingresso del campo. Le prove gratuite permettono di conoscere il corso, gli allenatori e il gruppo prima dell’iscrizione; in base alla categoria sono previste una o due giornate di prova.</p>
-        <div style="margin:20px 0;padding:16px 18px;background:#eef5fb;border-left:4px solid #123d73;border-radius:8px">
-          <strong style="color:#123d73">Una piccola attenzione per Caracalla</strong>
-          <p style="margin:8px 0 0;line-height:1.5">Nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con <strong>ASD Romatletica</strong>, all’arrivo chiedi espressamente di <strong>ASD Romatletica o di Anna</strong> e mostra questa tessera: sarai così indirizzato al nostro gruppo e ai nostri tecnici, evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.</p>
-        </div>
+        ${facilityNotice.html}
         <div style="text-align:center;margin:28px 0">
           <a href="${escapeHtml_(cardUrl)}" style="display:inline-block;background:#123d73;color:#fff;text-decoration:none;font-weight:800;padding:15px 24px;border-radius:10px">APRI LA TESSERA PERSONALE</a>
         </div>
@@ -613,7 +665,7 @@ function buildTrialEmail_(record) {
       </div>
     </div>
   </div></body></html>`;
-  const plainBody = `Buongiorno,\n\nabbiamo preparato la tessera personale per le prove di ${fullName}.${requestedDate ? `\nData indicata nella richiesta: ${requestedDate}.` : ''}\n\nApri la tessera personale:\n${cardUrl}\n\nConserva questa email e mostra il QR all’ingresso del campo.\n\nUna piccola attenzione per Caracalla: nell’impianto operano numerose società sportive. Per svolgere la prova prenotata con ASD Romatletica, all’arrivo chiedi espressamente di ASD Romatletica o di Anna e mostra questa tessera, così sarai indirizzato al nostro gruppo e ai nostri tecnici evitando equivoci. La scelta del percorso sportivo resta naturalmente libera; desideriamo semplicemente che la prova richiesta con noi si svolga con la società che hai contattato.\n\nA presto al campo!\nLa Segreteria ASD Romatletica`;
+  const plainBody = `Buongiorno,\n\nabbiamo preparato la tessera personale per le prove di ${fullName}.${requestedDate ? `\nData indicata nella richiesta: ${requestedDate}.` : ''}${facility ? `\nImpianto: ${facility}.` : ''}\n\nApri la tessera personale:\n${cardUrl}\n\nConserva questa email e mostra il QR all’ingresso del campo.\n\n${facilityNotice.plain}\n\nA presto al campo!\nLa Segreteria ASD Romatletica`;
   return { to, subject, htmlBody, plainBody };
 }
 
